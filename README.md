@@ -1,4 +1,3 @@
-# hr-racemaster
 # HR-RaceMaster
 
 **Modulares Event-, Gruppen- & KartRolling-Managementsystem mit KaRaS-Echtzeitanbindung**  

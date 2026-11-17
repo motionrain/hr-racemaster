@@ -1,21 +1,30 @@
 // src/hooks/useKarasBridge.ts
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { SessionCard } from '../types/kart';
+import { SessionCard, SessionDriverEntry } from '../types/kart';
 
 interface UseKarasBridgeProps {
   activeCard: SessionCard | undefined;
   onUpdateCard: (updated: SessionCard) => void;
+  onDetectedGroupKarts?: (groupName: string, kartNames: string[]) => void;
 }
 
-export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps) {
+export function useKarasBridge({
+  activeCard,
+  onUpdateCard,
+  onDetectedGroupKarts,
+}: UseKarasBridgeProps) {
   const [bridgeOnline, setBridgeOnline] = useState<boolean>(false);
   const [autoPoll, setAutoPoll] = useState<boolean>(true);
 
   const cardRef = useRef<SessionCard | undefined>(activeCard);
   const updateRef = useRef<(updated: SessionCard) => void>(onUpdateCard);
+  const detectedRef = useRef<((groupName: string, kartNames: string[]) => void) | undefined>(
+    onDetectedGroupKarts
+  );
   const lastStopSeqRef = useRef<number | null>(null);
   const lastStartSeqRef = useRef<number | null>(null);
   const lastCardIdRef = useRef<string | undefined>(undefined);
+  const isResettingRef = useRef<boolean>(false);
 
   useEffect(() => {
     cardRef.current = activeCard;
@@ -25,15 +34,32 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
     updateRef.current = onUpdateCard;
   }, [onUpdateCard]);
 
-  // WICHTIG: Wenn zu einer neuen Karte (NEXT / Finale) gewechselt wird, die noch auf 'waiting' steht,
-  // sofort den Zwischenspeicher der Python-Bridge leeren (/reset), damit keine alten Zeiten rüberwandern!
+  useEffect(() => {
+    detectedRef.current = onDetectedGroupKarts;
+  }, [onDetectedGroupKarts]);
+
   useEffect(() => {
     if (!activeCard) return;
     if (lastCardIdRef.current !== activeCard.id) {
       lastCardIdRef.current = activeCard.id;
+
       if (activeCard.karasState === 'waiting') {
+        isResettingRef.current = true;
         const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-        fetch(`http://${host}:8080/reset`, { method: 'POST' }).catch(() => {});
+        fetch(`http://${host}:8080/reset`, { method: 'POST' })
+          .then((r) => r.json())
+          .then((data) => {
+            if (typeof data?.start_seq === 'number') {
+              lastStartSeqRef.current = data.start_seq;
+            }
+            if (typeof data?.stop_seq === 'number') {
+              lastStopSeqRef.current = data.stop_seq;
+            }
+          })
+          .catch(() => {})
+          .finally(() => {
+            isResettingRef.current = false;
+          });
       }
     }
   }, [activeCard]);
@@ -45,7 +71,7 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
 
     const timer = setInterval(async () => {
       const currentCard = cardRef.current;
-      if (!currentCard || !isMounted) return;
+      if (!currentCard || !isMounted || isResettingRef.current) return;
 
       try {
         const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
@@ -55,7 +81,7 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
         });
         if (!res.ok) throw new Error('Bridge offline');
         const data = await res.json();
-        if (!isMounted) return;
+        if (!isMounted || isResettingRef.current) return;
 
         setBridgeOnline(true);
 
@@ -67,15 +93,12 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
 
         let nextState = currentCard.karasState;
 
-        // 1. Nur wenn ein NEUER Start (startSeq gestiegen) oder ein aktiver Lauf nach Reset vorliegt,
-        //    schaltet eine wartende Karte auf 'running'
         if (currentCard.karasState === 'waiting') {
           if (startSeq > lastStartSeqRef.current || data.race_active) {
             nextState = 'running';
           }
         }
 
-        // 2. Echtes Stopp-Signal von KaRaS empfangen -> Karte auf 'stopped'
         if (stopSeq > lastStopSeqRef.current && currentCard.karasState === 'running') {
           nextState = 'stopped';
         }
@@ -83,8 +106,6 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
         lastStartSeqRef.current = startSeq;
         lastStopSeqRef.current = stopSeq;
 
-        // 3. SPERRE: Wenn die Karte auf 'waiting' oder bereits auf 'stopped' steht,
-        //    dürfen KEINE alten Zeiten aus der Bridge in diese Karte kopiert werden!
         if (nextState !== 'running') {
           if (nextState !== currentCard.karasState) {
             updateRef.current({
@@ -95,10 +116,69 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
           return;
         }
 
-        const kartsObj = data.karts && typeof data.karts === 'object' ? data.karts : {};
-        let hasChanges = nextState !== currentCard.karasState;
+        const kartsObj: Record<
+          string,
+          { best_lap?: number; last_lap?: number; laps?: number; active?: boolean; first_seen?: number }
+        > = data.karts && typeof data.karts === 'object' ? data.karts : {};
 
-        const updatedEntries = currentCard.entries.map((entry) => {
+        const activeKartNums = Object.keys(kartsObj).sort(
+          (a, b) => (kartsObj[a]?.first_seen ?? 999) - (kartsObj[b]?.first_seen ?? 999)
+        );
+
+        let hasChanges = nextState !== currentCard.karasState;
+        const matchedKartNums = new Set<string>();
+
+        let updatedEntries: SessionDriverEntry[] = currentCard.entries.map((entry) => {
+          const kartNum = entry.kartName.replace(/\D/g, '');
+          if (kartNum && kartsObj[kartNum]) {
+            matchedKartNums.add(kartNum);
+          }
+          return entry;
+        });
+
+        const unmatchedActiveKartNums = activeKartNums.filter(
+          (kNum) => !matchedKartNums.has(kNum)
+        );
+
+        if (unmatchedActiveKartNums.length > 0) {
+          let uIdx = 0;
+          updatedEntries = updatedEntries.map((entry) => {
+            const currentNum = entry.kartName.replace(/\D/g, '');
+            const alreadyActive =
+              matchedKartNums.has(currentNum) ||
+              entry.transponderActive ||
+              entry.laps > 0 ||
+              parseFloat(entry.bestTime) > 0;
+
+            if (!alreadyActive && uIdx < unmatchedActiveKartNums.length) {
+              const newKartNum = unmatchedActiveKartNums[uIdx++];
+              matchedKartNums.add(newKartNum);
+              hasChanges = true;
+              return {
+                ...entry,
+                kartName: `Kart ${newKartNum}`,
+              };
+            }
+            return entry;
+          });
+
+          while (uIdx < unmatchedActiveKartNums.length) {
+            const extraKartNum = unmatchedActiveKartNums[uIdx++];
+            matchedKartNums.add(extraKartNum);
+            hasChanges = true;
+            updatedEntries.push({
+              driverId: 900 + parseInt(extraKartNum, 10),
+              driverName: `Gastfahrer (Kart ${extraKartNum})`,
+              kartName: `Kart ${extraKartNum}`,
+              bestTime: '',
+              lastTime: '',
+              laps: 0,
+              transponderActive: true,
+            });
+          }
+        }
+
+        updatedEntries = updatedEntries.map((entry) => {
           const kartNum = entry.kartName.replace(/\D/g, '');
           const kartData = kartsObj[kartNum];
           if (!kartData) return entry;
@@ -113,11 +193,13 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
               : entry.lastTime;
           const newLaps =
             typeof kartData.laps === 'number' ? kartData.laps : entry.laps;
+          const newActive = true;
 
           if (
             newBest !== entry.bestTime ||
             newLast !== entry.lastTime ||
-            newLaps !== entry.laps
+            newLaps !== entry.laps ||
+            newActive !== Boolean(entry.transponderActive)
           ) {
             hasChanges = true;
           }
@@ -127,6 +209,7 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
             bestTime: newBest,
             lastTime: newLast,
             laps: newLaps,
+            transponderActive: newActive,
           };
         });
 
@@ -136,6 +219,11 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
             karasState: nextState,
             entries: updatedEntries,
           });
+
+          if (detectedRef.current && currentCard.kind === 'quali') {
+            const currentPool = updatedEntries.map((e) => e.kartName);
+            detectedRef.current(currentCard.groupName, currentPool);
+          }
         }
       } catch {
         if (isMounted) setBridgeOnline(false);
@@ -151,12 +239,27 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
   const triggerStart = useCallback(() => {
     if (!cardRef.current) return;
     const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
-    fetch(`http://${host}:8080/reset`, { method: 'POST' }).catch(() => {});
-    updateRef.current({ ...cardRef.current, karasState: 'running' });
+    isResettingRef.current = true;
+    fetch(`http://${host}:8080/manual_start`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data?.start_seq === 'number') {
+          lastStartSeqRef.current = data.start_seq;
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        isResettingRef.current = false;
+        if (cardRef.current) {
+          updateRef.current({ ...cardRef.current, karasState: 'running' });
+        }
+      });
   }, []);
 
   const triggerStop = useCallback(() => {
     if (!cardRef.current) return;
+    const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+    fetch(`http://${host}:8080/reset`, { method: 'POST' }).catch(() => {});
     updateRef.current({ ...cardRef.current, karasState: 'stopped' });
   }, []);
 
@@ -165,7 +268,7 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
     if (!currentCard) return;
 
     const updatedEntries = currentCard.entries.map((entry) => {
-      const randomLap = (39.8 + Math.random() * 3.4).toFixed(3);
+      const randomLap = (24.2 + Math.random() * 2.8).toFixed(3);
       const currentBest = parseFloat(entry.bestTime);
       const newBest =
         isNaN(currentBest) || currentBest <= 0
@@ -177,6 +280,7 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
         lastTime: randomLap,
         bestTime: newBest,
         laps: entry.laps + 1,
+        transponderActive: true,
       };
     });
 

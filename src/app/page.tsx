@@ -17,6 +17,7 @@ import {
   buildBalancedGroups,
   getQualiTurnCount,
   generateQualiSessionCards,
+  applyGroupKartPoolToCards,
   calculateOverallQualiStandings,
   buildFinalCardsFromStandings,
 } from '../lib/raceLogic';
@@ -51,30 +52,27 @@ export default function HRRaceMasterPage() {
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<MainTab>('setup');
 
-  // Setup-State
   const [eventName, setEventName] = useState<string>('KartRolling Grand Prix');
   const [eventMode, setEventMode] = useState<EventMode>('rolling');
-  const [hasWarmup, setHasWarmup] = useState<boolean>(true);
+  const [hasWarmup, setHasWarmup] = useState<boolean>(false);
   const [gpQualiCount, setGpQualiCount] = useState<number>(2);
-  const [maxTrackKarts, setMaxTrackKarts] = useState<number>(8);
+  const [maxTrackKarts, setMaxTrackKarts] = useState<number>(6);
   const [fleetType, setFleetType] = useState<FleetType>('adult');
   const [karts, setKarts] = useState<KartItem[]>(ADULT_FLEET);
   const [rawDriversText, setRawDriversText] = useState<string>(DEFAULT_DRIVERS);
+  const [customGroupKarts, setCustomGroupKarts] = useState<Record<string, string[]>>({});
 
-  // Netzwerk-URLs für Smartphone & Tablets
   const [mobileUrl, setMobileUrl] = useState<string>('http://localhost:3000/mobile');
   const [mainUrl, setMainUrl] = useState<string>('http://localhost:3000');
   const lastServerUpdatedAt = useRef<number>(0);
   const isTypingLocally = useRef<boolean>(false);
 
-  // Lauf-Karten (Warm-up / Quali) & Final-Karten (Langsamste Gruppe zuerst!)
   const [sessionCards, setSessionCards] = useState<SessionCard[]>([]);
   const [activeCardIndex, setActiveCardIndex] = useState<number>(0);
   const [finalCards, setFinalCards] = useState<SessionCard[]>([]);
   const [activeFinalIndex, setActiveFinalIndex] = useState<number>(0);
   const [printMode, setPrintMode] = useState<PrintViewMode>('quali_total');
 
-  // Live-Synchronisation mit dem Smartphone (/api/event)
   useEffect(() => {
     const pollSmartphoneDrivers = async () => {
       if (isTypingLocally.current) return;
@@ -95,7 +93,7 @@ export default function HRRaceMasterPage() {
           if (data.eventName) setEventName(data.eventName);
         }
       } catch {
-        // Ignorieren falls API kurzzeitig nicht erreichbar
+        // Ignorieren
       }
     };
 
@@ -104,7 +102,6 @@ export default function HRRaceMasterPage() {
     return () => clearInterval(interval);
   }, []);
 
-  // Wenn am PC im Textfeld getippt wird -> auch an den Server (/api/event) senden, damit das Smartphone synchron bleibt
   const handleLocalDriversChange = (newText: string) => {
     isTypingLocally.current = true;
     setRawDriversText(newText);
@@ -158,14 +155,29 @@ export default function HRRaceMasterPage() {
   }, [rawDriversText]);
 
   const groups = useMemo(
-    () => buildBalancedGroups(drivers, maxTrackKarts, activeKarts.length),
-    [drivers, maxTrackKarts, activeKarts.length]
+    () => buildBalancedGroups(drivers, maxTrackKarts, activeKarts, customGroupKarts),
+    [drivers, maxTrackKarts, activeKarts, customGroupKarts]
   );
 
   const qualiTurns = useMemo(
     () => getQualiTurnCount(eventMode, gpQualiCount, groups),
     [eventMode, gpQualiCount, groups]
   );
+
+  useEffect(() => {
+    if (groups.length > 0 && activeKarts.length > 0) {
+      setSessionCards((prev) =>
+        generateQualiSessionCards(
+          groups,
+          activeKarts,
+          eventMode,
+          hasWarmup,
+          qualiTurns,
+          prev
+        )
+      );
+    }
+  }, [groups, activeKarts, eventMode, hasWarmup, qualiTurns]);
 
   const standings = useMemo(
     () =>
@@ -180,21 +192,6 @@ export default function HRRaceMasterPage() {
     [groups, sessionCards, qualiTurns, eventMode, maxTrackKarts, activeKarts.length]
   );
 
-  // Beim ersten Laden initiale Quali-Karten erzeugen
-  useEffect(() => {
-    if (sessionCards.length === 0 && groups.length > 0) {
-      const initial = generateQualiSessionCards(
-        groups,
-        activeKarts,
-        eventMode,
-        hasWarmup,
-        qualiTurns
-      );
-      setSessionCards(initial);
-    }
-  }, [groups, activeKarts, eventMode, hasWarmup, qualiTurns, sessionCards.length]);
-
-  // Final-Karten automatisch bereitstellen/synchronisieren, sobald man den Finale-Tab öffnet
   useEffect(() => {
     if (
       (activeTab === 'finals' || activeTab === 'print') &&
@@ -205,18 +202,19 @@ export default function HRRaceMasterPage() {
         standings,
         maxTrackKarts,
         activeKarts,
-        []
+        [],
+        groups
       );
       setFinalCards(generatedFinals);
       setActiveFinalIndex(0);
     }
-  }, [activeTab, standings, maxTrackKarts, activeKarts, finalCards.length]);
+  }, [activeTab, standings, maxTrackKarts, activeKarts, finalCards.length, groups]);
 
   const handleFleetChange = (type: FleetType) => {
     setFleetType(type);
     const nextFleet = type === 'adult' ? ADULT_FLEET : JUNIOR_FLEET;
     setKarts(nextFleet);
-    setMaxTrackKarts(8);
+    setCustomGroupKarts({});
   };
 
   const handleToggleKart = (id: number) => {
@@ -225,13 +223,27 @@ export default function HRRaceMasterPage() {
     );
   };
 
+  const handleAssignGroupKarts = useCallback(
+    (groupName: string, newKarts: string[]) => {
+      setCustomGroupKarts((prev) => ({
+        ...prev,
+        [groupName]: newKarts,
+      }));
+      setSessionCards((prev) =>
+        applyGroupKartPoolToCards(prev, groupName, newKarts, eventMode)
+      );
+    },
+    [eventMode]
+  );
+
   const handleInitializeSessions = () => {
     const generated = generateQualiSessionCards(
       groups,
       activeKarts,
       eventMode,
       hasWarmup,
-      qualiTurns
+      qualiTurns,
+      []
     );
     setSessionCards(generated);
     setActiveCardIndex(0);
@@ -239,15 +251,6 @@ export default function HRRaceMasterPage() {
   };
 
   const handleOpenRotationBoard = () => {
-    const generated = generateQualiSessionCards(
-      groups,
-      activeKarts,
-      eventMode,
-      hasWarmup,
-      qualiTurns
-    );
-    setSessionCards(generated);
-    setActiveCardIndex(0);
     setActiveTab('rotation');
   };
 
@@ -268,10 +271,11 @@ export default function HRRaceMasterPage() {
       standings,
       maxTrackKarts,
       activeKarts,
-      finalCards
+      finalCards,
+      groups
     );
     setFinalCards(generatedFinals);
-    setActiveFinalIndex(0); // Startet mit der langsamsten Gruppe (z.B. Gruppe B)
+    setActiveFinalIndex(0);
     setActiveTab('finals');
   };
 
@@ -293,6 +297,7 @@ export default function HRRaceMasterPage() {
   } = useKarasBridge({
     activeCard: bridgeTargetCard,
     onUpdateCard: bridgeUpdateHandler,
+    onDetectedGroupKarts: handleAssignGroupKarts,
   });
 
   return (
@@ -347,6 +352,7 @@ export default function HRRaceMasterPage() {
             eventName={eventName}
             groups={groups}
             cards={sessionCards}
+            activeKarts={activeKarts}
             qualiTurns={qualiTurns}
             activeCardIndex={activeCardIndex}
             standings={standings}
@@ -354,6 +360,8 @@ export default function HRRaceMasterPage() {
               setActiveCardIndex(idx);
               setActiveTab('live');
             }}
+            onUpdateCard={handleUpdateCard}
+            onAssignGroupKarts={handleAssignGroupKarts}
             onPrintPlan={() => {
               setPrintMode('rolling_plan');
               setActiveTab('print');
@@ -373,6 +381,7 @@ export default function HRRaceMasterPage() {
             setActiveCardIndex={setActiveCardIndex}
             activeKarts={activeKarts}
             onUpdateCard={handleUpdateCard}
+            onAssignGroupKarts={handleAssignGroupKarts}
             onPrintCurrentCard={() => {
               setPrintMode('current_card');
               setActiveTab('print');

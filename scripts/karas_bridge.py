@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-HR-RaceMaster – KaRaS Live Bridge v29 (Port 8080)
-Pfad: /home/kart/Schreibtisch/hr-racemaster/scripts/karas_bridge.py
-- Orientiert sich an Kartlist.Log / karts.dat (inkl. aller Ersatztransponder wie 6-, 6+, 1-, 7-, 8., 11-, 11., 13., 04, Black 8)
-- Alle Ersatztransponder mit Sonderzeichen werden automatisch auf die Basis-Kartnummer (Kart 1..15) angewendet
+HR-RaceMaster – KaRaS Live Bridge v31 (Port 8080)
+- Liest Kartlist.Log & alle Ersatztransponder (6-, 6+, 1-, 7-, 8., 11-, 11., 13., 04, Black 8)
+- Meldet jedes Kart sofort ab der 1. Transponder-Erfassung als active=True an das Live-Board
 """
 
 import os
@@ -29,8 +28,6 @@ KARAS_DIR = os.environ.get(
 )
 PORT = int(os.environ.get("BRIDGE_PORT", "8080"))
 
-# Basis-Tabelle aus den 54 Datensätzen der Kartlist.Log / karts.dat (inkl. aller Ersatztransponder):
-# Format: { transponder_byte_id: ("Basis_Kart_Nr", "KaRaS_Bezeichnung") }
 BASE_TRANSPONDER_TABLE = {
     0x3d: ("5",  "Sodi LR5 Premium Nr5 [Nr. 5]"),
     0x49: ("8",  "Sodi LR5 Premium Nr8 [Nr. 8]"),
@@ -88,6 +85,9 @@ bridge_state = {
     "last_raw_packets": []
 }
 
+waiting_for_new_start = False
+seen_counter = 0
+
 
 class ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
@@ -110,14 +110,8 @@ def stop_old_bridge_instances():
 
 
 def normalize_kart_number(raw_nr: str, raw_name: str, funk_id: str = "") -> str:
-    """
-    Wandelt Kart-Einträge mit Sonderzeichen (z.B. '6-', '6+', '11-', '11.', '8.', '13.', '1-', '7-', '04', 'Black 8')
-    anhand von Kartlist.Log in die Basis-Kartnummer ('1' bis '15') für HR-RaceMaster um.
-    """
     if funk_id.upper() == "0F49E0":
         return "6"
-
-    # 1. Primär nach der Spalte 'Nr.:' (Kartnr) aus Kartlist.Log richten (entfernt '-', '+', '.')
     if raw_nr:
         clean_nr = re.sub(r"[^0-9]", "", raw_nr.strip())
         if clean_nr:
@@ -126,11 +120,8 @@ def normalize_kart_number(raw_nr: str, raw_name: str, funk_id: str = "") -> str:
                 return "3"
             if 1 <= num <= 25:
                 return str(num)
-
-    # 2. Fallback: Nummer aus dem Kartnamen holen ('Sodi SR4 NR.6-', 'Sodi SR4 Nr.04', 'Black 8', 'Sodi 2 Drive')
     if "2 DRIVE" in raw_name.upper():
         return "15"
-
     m_name = re.search(r"(?:Nr\.?|Black)\s*0*(\d+)", raw_name, re.IGNORECASE)
     if m_name:
         num = int(m_name.group(1))
@@ -138,24 +129,17 @@ def normalize_kart_number(raw_nr: str, raw_name: str, funk_id: str = "") -> str:
             return "3"
         if 1 <= num <= 25:
             return str(num)
-
     return ""
 
 
 def parse_kartlist_log(karas_dir: str):
-    """
-    Liest Kartlist.Log (und Kartlist.txt) aus und baut das Namens- und Nummern-Lexikon
-    inkl. aller Ersatztransponder (z.B. 6-, 6+, 11-, 11., 1-, 7-, 8., 13., 04) auf.
-    """
     global KARTLIST_NAME_TO_NUM
     KARTLIST_NAME_TO_NUM.clear()
-
     log_candidates = [
         os.path.join(karas_dir, "Kartlist.Log"),
         os.path.join(karas_dir, "Kartlist.txt"),
         os.path.join(karas_dir, "kartlist.log"),
     ]
-
     records = []
     for path in log_candidates:
         if not os.path.exists(path):
@@ -171,29 +155,20 @@ def parse_kartlist_log(karas_dir: str):
                 raw_nr = m_nr.group(1).strip()
                 raw_name = m_nr.group(2).strip()
                 funk_id = m_fid.group(1).strip().upper() if m_fid else ""
-
                 norm_num = normalize_kart_number(raw_nr, raw_name, funk_id)
                 if norm_num:
-                    # Speichere Name -> Basis-Kartnummer (sowohl exakt als auch kleingeschrieben)
                     KARTLIST_NAME_TO_NUM[raw_name.lower()] = (norm_num, raw_nr, raw_name)
                     records.append((idx, raw_nr, raw_name, funk_id, norm_num))
             if records:
                 break
         except Exception:
             pass
-
     return records
 
 
 def scan_binary_for_kart_mappings(data: bytes):
-    """
-    Sucht in RE*.dat Blöcken nach allen Kart-Namen (Sodi..., Black 8, etc.).
-    Exakt 32 Bytes vor dem Kartnamen steht in RE*.dat die 1-Byte Transponder-ID.
-    Nutzt die Kartlist.Log-Regeln für Ersatztransponder (6-, 6+, 1-, 7-, 8., 11-, 11., 13., 04).
-    """
     found = {}
     pattern = re.compile(rb"(?:Sodi|Black\s*\d)[^\x00\r\n]{0,35}", re.IGNORECASE)
-
     for m in pattern.finditer(data):
         pos = m.start()
         if pos < 32:
@@ -202,13 +177,9 @@ def scan_binary_for_kart_mappings(data: bytes):
         trans_id = data[pos - 32]
         if trans_id == 0 or trans_id > 250:
             continue
-
-        # 1. Prüfen ob der Name in Kartlist.Log bekannt ist
         key = name_str.lower()
         if key in KARTLIST_NAME_TO_NUM:
             norm_num, raw_nr, _ = KARTLIST_NAME_TO_NUM[key]
-            # Falls der Name mehrfach in Kartlist.Log vorkommt (z.B. 'Sodi SR4 Nr.10' als Nr.4 und Nr.10),
-            # hat die spezifische BASE_TRANSPONDER_TABLE Vorrang:
             if trans_id in BASE_TRANSPONDER_TABLE:
                 norm_num = BASE_TRANSPONDER_TABLE[trans_id][0]
             found[trans_id] = (norm_num, f"{name_str} [Nr. {raw_nr}]")
@@ -216,23 +187,16 @@ def scan_binary_for_kart_mappings(data: bytes):
             norm_num = normalize_kart_number("", name_str)
             if norm_num:
                 found[trans_id] = (norm_num, name_str)
-
     return found
 
 
 def load_transponder_mappings(karas_dir: str):
-    """Lädt alle Haupt- und Ersatztransponder aus Kartlist.Log, BASE_TRANSPONDER_TABLE und allen RE*.dat."""
     global TRANSPONDER_TO_KART, TRANSPONDER_LABELS
-
-    # 1. Kartlist.Log einlesen
     kartlist_records = parse_kartlist_log(karas_dir)
-
-    # 2. Basis-Tabelle aller 54 Karts & Ersatztransponder laden
     for t_id, (k_num, label) in BASE_TRANSPONDER_TABLE.items():
         TRANSPONDER_TO_KART[t_id] = k_num
         TRANSPONDER_LABELS[t_id] = label
 
-    # 3. Alle RE*.dat Dateien im KaRaS-Ordner nach weiteren/neuen Transpondern durchsuchen
     re_files = (
         glob.glob(os.path.join(karas_dir, "RE*.dat")) +
         glob.glob(os.path.join(karas_dir, "RE*.DAT"))
@@ -254,14 +218,9 @@ def load_transponder_mappings(karas_dir: str):
         }
 
     print(
-        f"[HR-RaceMaster Bridge v29] {len(kartlist_records)} Einträge aus Kartlist.Log & "
-        f"{len(TRANSPONDER_TO_KART)} aktive Transponder-IDs (inkl. Ersatztransponder) geladen:"
+        f"[HR-RaceMaster Bridge v31] {len(kartlist_records)} Einträge aus Kartlist.Log & "
+        f"{len(TRANSPONDER_TO_KART)} Transponder-IDs (inkl. Ersatztransponder) aktiv."
     )
-    for t_id in sorted(TRANSPONDER_TO_KART.keys(), key=lambda x: (int(TRANSPONDER_TO_KART[x]), x)):
-        k_num = TRANSPONDER_TO_KART[t_id]
-        label = TRANSPONDER_LABELS.get(t_id, "")
-        ch = chr(t_id) if 32 <= t_id <= 126 else "?"
-        print(f"  Transponder 0x{t_id:02x} ('{ch}') -> Kart {k_num:2s}  ({label})")
 
 
 def get_latest_re_file(directory: str):
@@ -272,25 +231,20 @@ def get_latest_re_file(directory: str):
     return max(files, key=os.path.getmtime) if files else None
 
 
-def reset_heat_stats():
+def reset_heat_stats(wait_for_new_start: bool = True):
+    global waiting_for_new_start, seen_counter
     with state_lock:
         bridge_state["karts"] = {}
-        bridge_state["race_active"] = False
         bridge_state["last_raw_packets"] = []
+        bridge_state["race_active"] = False
         bridge_state["updated_at"] = time.time()
+        waiting_for_new_start = wait_for_new_start
+        seen_counter = 0
 
 
 def parse_16byte_lap_packet(packet: bytes):
-    """
-    Dekodiert ein 16-Byte KaRaS Transponder-Paket:
-      Byte 0:       Transponder-ID (Haupt- oder Ersatztransponder)
-      Bytes 4..7:   Durchfahrts-Zähler (1 = Start-Überfahrt, ab 2 = Gezeitete Runde)
-      Bytes 8..11:  Gesamt-Timer in 1/100 Sek.
-      Bytes 12..15: Rundenzeit in 1/100 Sek. (z.B. 2178 = 21.780 Sek.)
-    """
     if len(packet) != 16:
         return None, 0, None, False, ""
-
     if packet.startswith(b'\x01\x00\x00\x00') or packet.startswith(b'\x02\x00\x00\x00'):
         return None, 0, None, False, ""
 
@@ -308,7 +262,7 @@ def parse_16byte_lap_packet(packet: bytes):
         label = f"Direkt-ID {trans_id}"
     else:
         kart_str = str(trans_id)
-        label = f"Unbekannter Transponder 0x{trans_id:02x}"
+        label = f"Transponder 0x{trans_id:02x}"
 
     lap_sec = round(lap_cs / 100.0, 3)
 
@@ -323,7 +277,14 @@ def parse_16byte_lap_packet(packet: bytes):
 
 
 def record_lap(kart_str: str, completed_laps: int, lap_sec: float, is_first_crossing: bool):
+    global waiting_for_new_start, seen_counter
     with state_lock:
+        if waiting_for_new_start:
+            if is_first_crossing or completed_laps == 1:
+                waiting_for_new_start = False
+            else:
+                return False
+
         if not bridge_state["race_active"]:
             bridge_state["race_active"] = True
             bridge_state["start_seq"] += 1
@@ -331,26 +292,34 @@ def record_lap(kart_str: str, completed_laps: int, lap_sec: float, is_first_cros
         karts = bridge_state["karts"]
         if is_first_crossing:
             if kart_str not in karts:
+                seen_counter += 1
                 karts[kart_str] = {
+                    "active": True,
+                    "first_seen": seen_counter,
                     "best_lap": 0.0,
                     "last_lap": 0.0,
                     "laps": 0
                 }
         else:
             if kart_str not in karts or not karts[kart_str]["best_lap"]:
+                seen_counter += 1
                 karts[kart_str] = {
+                    "active": True,
+                    "first_seen": karts.get(kart_str, {}).get("first_seen", seen_counter),
                     "best_lap": lap_sec,
                     "last_lap": lap_sec,
-                    "laps": completed_laps
+                    "laps": 1 if completed_laps > 1 and kart_str not in karts else completed_laps
                 }
             else:
                 entry = karts[kart_str]
+                entry["active"] = True
                 entry["laps"] = max(entry["laps"] + 1, completed_laps)
                 entry["last_lap"] = lap_sec
                 if lap_sec < entry["best_lap"] or entry["best_lap"] <= 0:
                     entry["best_lap"] = lap_sec
 
         bridge_state["updated_at"] = time.time()
+        return True
 
 
 def is_karas_stop_chunk(chunk: bytes) -> bool:
@@ -365,10 +334,11 @@ def is_karas_stop_chunk(chunk: bytes) -> bool:
 
 
 def watcher_loop(karas_dir: str):
+    global waiting_for_new_start
     current_file = None
     file_pos = 0
 
-    print(f"[HR-RaceMaster Bridge v29] Überwache KaRaS-Ordner: {karas_dir}")
+    print(f"[HR-RaceMaster Bridge v31] Überwache KaRaS-Ordner: {karas_dir}")
 
     while True:
         try:
@@ -398,7 +368,6 @@ def watcher_loop(karas_dir: str):
                     chunk_len = len(chunk)
                     now = time.time()
 
-                    # FALL 1: Großer KaRaS-Startblock (>= 4000 Bytes)
                     if chunk_len >= 4000:
                         parse_kartlist_log(karas_dir)
                         for t_id, (k_num, label) in scan_binary_for_kart_mappings(chunk).items():
@@ -406,14 +375,13 @@ def watcher_loop(karas_dir: str):
                             TRANSPONDER_LABELS[t_id] = label
 
                         file_pos += chunk_len
-                        reset_heat_stats()
+                        reset_heat_stats(wait_for_new_start=False)
                         with state_lock:
                             bridge_state["race_active"] = True
                             bridge_state["start_seq"] += 1
                             bridge_state["updated_at"] = now
                         print(f"\n🟢 [!] RENNSTART ERKANNT! ({chunk_len} Bytes Startblock)")
 
-                    # FALL 2: Echtes Stopp- oder Abbruch-Paket
                     elif is_karas_stop_chunk(chunk):
                         file_pos += chunk_len
                         with state_lock:
@@ -421,9 +389,9 @@ def watcher_loop(karas_dir: str):
                                 bridge_state["stop_seq"] += 1
                             bridge_state["race_active"] = False
                             bridge_state["updated_at"] = now
+                            waiting_for_new_start = True
                         print(f"\n🏁 [!] RENNENDE / STOPP ERKANNT! ({chunk_len} Bytes Signal)")
 
-                    # FALL 3: 16-Byte Transponder-Durchfahrten (Haupt- & Ersatztransponder)
                     elif chunk_len >= 16 and chunk_len % 16 == 0:
                         for i in range(0, chunk_len, 16):
                             pkt = chunk[i:i + 16]
@@ -434,19 +402,17 @@ def watcher_loop(karas_dir: str):
 
                             kart_str, laps, lap_sec, is_first, label = parse_16byte_lap_packet(pkt)
                             if kart_str is not None:
-                                record_lap(kart_str, laps, lap_sec, is_first)
-                                if is_first:
-                                    print(f"  🟢 [Start-Durchfahrt] Kart {kart_str:2s} ({label}) -> Uhr läuft!")
-                                else:
-                                    print(f"  ⏱️  [Runde erfasst]    Kart {kart_str:2s} ({label}) | Runde {laps:2d} | Zeit: {lap_sec:6.2f} s")
-                            else:
-                                print(f"  [16B Paket] HEX: {hex_line}")
+                                accepted = record_lap(kart_str, laps, lap_sec, is_first)
+                                if accepted:
+                                    if is_first:
+                                        print(f"  🟢 [Transponder Aktiv] Kart {kart_str:2s} ({label}) -> Im Live-Board eingeblendet!")
+                                    else:
+                                        print(f"  ⏱️  [Runde erfasst]     Kart {kart_str:2s} ({label}) | Runde {laps:2d} | Zeit: {lap_sec:6.2f} s")
 
                         file_pos += chunk_len
 
             time.sleep(0.05)
         except Exception as e:
-            print(f"[Warnung] {e}")
             time.sleep(0.1)
 
 
@@ -480,8 +446,29 @@ class BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path.startswith("/reset"):
-            reset_heat_stats()
-            payload = b'{"status":"reset_ok"}'
+            reset_heat_stats(wait_for_new_start=True)
+            with state_lock:
+                payload = json.dumps({
+                    "status": "reset_ok",
+                    "start_seq": bridge_state["start_seq"],
+                    "stop_seq": bridge_state["stop_seq"],
+                }).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(payload)))
+            self._send_cors_headers()
+            self.end_headers()
+            self.wfile.write(payload)
+        elif self.path.startswith("/manual_start"):
+            reset_heat_stats(wait_for_new_start=False)
+            with state_lock:
+                bridge_state["race_active"] = True
+                bridge_state["start_seq"] += 1
+                payload = json.dumps({
+                    "status": "manual_start_ok",
+                    "start_seq": bridge_state["start_seq"],
+                    "stop_seq": bridge_state["stop_seq"],
+                }).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(payload)))
@@ -497,37 +484,11 @@ class BridgeHTTPRequestHandler(BaseHTTPRequestHandler):
         return
 
 
-def inspect_latest_file(karas_dir: str):
-    load_transponder_mappings(karas_dir)
-    latest = get_latest_re_file(karas_dir)
-    if not latest:
-        print(f"Keine RE*.dat Datei in {karas_dir} gefunden.")
-        return
-
-    data = open(latest, "rb").read()
-    print(f"\n=== Diagnose für Datei: {latest} ({len(data)} Bytes) ===")
-    found_laps = 0
-    for off in range(0, len(data) - 16, 4):
-        pkt = data[off:off + 16]
-        if pkt[1:4] == b"tac" or (pkt[0] in TRANSPONDER_TO_KART and pkt[1:4] == b"\x00\x00\x00"):
-            kart_str, laps, lap_sec, is_first, label = parse_16byte_lap_packet(pkt)
-            if kart_str and (is_first or lap_sec):
-                status = "Start-Durchfahrt" if is_first else f"Runde {laps:2d}: {lap_sec:6.2f} s"
-                print(f"Offset {off:06d} | HEX: {pkt.hex(' ')} | Kart {kart_str:2s} ({label}) | {status}")
-                found_laps += 1
-    print(f"Gesamt gefundene Transponder-Durchfahrten in {os.path.basename(latest)}: {found_laps}")
-
-
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="HR-RaceMaster KaRaS Live Bridge v29")
+    parser = argparse.ArgumentParser(description="HR-RaceMaster KaRaS Live Bridge v31")
     parser.add_argument("--dir", default=KARAS_DIR, help="Pfad zum KaRaS-Verzeichnis")
     parser.add_argument("--port", type=int, default=PORT, help="HTTP-Port (Standard: 8080)")
-    parser.add_argument("--inspect", action="store_true", help="Diagnose der letzten RE*.dat Datei")
     args = parser.parse_args()
-
-    if args.inspect:
-        inspect_latest_file(args.dir)
-        sys.exit(0)
 
     stop_old_bridge_instances()
     load_transponder_mappings(args.dir)
@@ -536,7 +497,7 @@ if __name__ == "__main__":
     t.start()
 
     server = ReusableThreadingHTTPServer(("0.0.0.0", args.port), BridgeHTTPRequestHandler)
-    print(f"[HR-RaceMaster Bridge v29] API läuft auf http://0.0.0.0:{args.port}/status")
+    print(f"[HR-RaceMaster Bridge v31] API läuft auf http://0.0.0.0:{args.port}/status")
     try:
         server.serve_forever()
     except KeyboardInterrupt:

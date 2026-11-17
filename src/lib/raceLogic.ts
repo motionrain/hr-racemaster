@@ -22,16 +22,26 @@ export const JUNIOR_FLEET: KartItem[] = Array.from({ length: 8 }, (_, i) => ({
   active: true,
 }));
 
-/**
- * Teilt Fahrer fair auf Gruppen auf (z.B. 22 Fahrer bei Max 8 -> 8, 7, 7)
- */
+export function isEntryActive(entry: SessionDriverEntry): boolean {
+  const bt = parseFloat(entry.bestTime);
+  const lt = parseFloat(entry.lastTime);
+  return Boolean(
+    entry.transponderActive ||
+      entry.laps > 0 ||
+      (!isNaN(bt) && bt > 0) ||
+      (!isNaN(lt) && lt > 0)
+  );
+}
+
 export function buildBalancedGroups(
   drivers: Driver[],
   maxKartsOnTrack: number,
-  availableKartsCount: number
+  activeKarts: KartItem[],
+  customGroupKarts: Record<string, string[]> = {}
 ): RaceGroup[] {
+  const availableCount = Math.max(1, activeKarts.length);
   const safeMax = Math.max(1, maxKartsOnTrack || 1);
-  const effectiveLimit = Math.min(safeMax, Math.max(1, availableKartsCount));
+  const effectiveLimit = Math.min(safeMax, availableCount);
   if (drivers.length === 0 || effectiveLimit <= 0) return [];
 
   const groupCount = Math.ceil(drivers.length / effectiveLimit);
@@ -40,122 +50,159 @@ export function buildBalancedGroups(
 
   const groups: RaceGroup[] = [];
   let cursor = 0;
+  const activeNames = activeKarts.map((k) => k.name);
 
   for (let i = 0; i < groupCount; i++) {
     const size = baseSize + (remainder > 0 ? 1 : 0);
     if (remainder > 0) remainder--;
 
+    const groupName = `Gruppe ${String.fromCharCode(65 + i)}`;
+    const groupDrivers = drivers.slice(cursor, cursor + size);
+    cursor += size;
+
+    const manualList = (customGroupKarts[groupName] || []).filter((kn) =>
+      activeNames.includes(kn)
+    );
+
+    const poolSize = Math.max(size, manualList.length);
+    const assignedKarts: string[] = [...manualList];
+
+    for (const kn of activeNames) {
+      if (assignedKarts.length >= poolSize) break;
+      if (!assignedKarts.includes(kn)) {
+        assignedKarts.push(kn);
+      }
+    }
+
+    while (assignedKarts.length < size && activeNames.length > 0) {
+      assignedKarts.push(activeNames[assignedKarts.length % activeNames.length]);
+    }
+
     groups.push({
       id: `grp-${i}`,
-      name: `Gruppe ${String.fromCharCode(65 + i)}`,
-      drivers: drivers.slice(cursor, cursor + size),
+      name: groupName,
+      drivers: groupDrivers,
+      assignedKarts,
     });
-    cursor += size;
   }
 
   return groups;
 }
 
-/**
- * Bestimmt die Anzahl der Quali-Turns:
- * - GP: gewählte Anzahl (1, 2, 3...)
- * - KartRolling: Größe der größten Gruppe (alle Gruppen fahren exakt gleich viele Turns)
- */
 export function getQualiTurnCount(
   mode: EventMode,
   gpQualiCount: number,
   groups: RaceGroup[]
 ): number {
   if (mode === 'gp') return Math.max(1, gpQualiCount);
-  return groups.reduce((max, g) => Math.max(max, g.drivers.length), 0);
+  return Math.max(
+    1,
+    groups.reduce((max, g) => Math.max(max, g.drivers.length), 0)
+  );
 }
 
-/**
- * Erzeugt alle chronologischen Session-Karten (Warm-up -> Quali 1..N)
- */
 export function generateQualiSessionCards(
   groups: RaceGroup[],
   activeKarts: KartItem[],
   mode: EventMode,
   hasWarmup: boolean,
-  qualiTurns: number
+  qualiTurns: number,
+  existingCards: SessionCard[] = []
 ): SessionCard[] {
   const cards: SessionCard[] = [];
   if (groups.length === 0 || activeKarts.length === 0) return cards;
 
-  const maxGroupSize = groups.reduce((max, g) => Math.max(max, g.drivers.length), 0);
-  const poolSize =
-    mode === 'rolling' ? Math.min(maxGroupSize, activeKarts.length) : activeKarts.length;
-  const rotationPool = activeKarts.slice(0, poolSize);
-
-  // 1. Optionales Warm-up
   if (hasWarmup) {
     groups.forEach((group) => {
-      const entries: SessionDriverEntry[] = group.drivers.map((d, dIdx) => ({
-        driverId: d.id,
-        driverName: d.name,
-        kartName: rotationPool[dIdx % rotationPool.length]?.name || '–',
-        bestTime: '',
-        lastTime: '',
-        laps: 0,
-      }));
+      const cardId = `warmup-${group.id}`;
+      const prevCard = existingCards.find((c) => c.id === cardId);
+      const groupPool =
+        group.assignedKarts.length > 0
+          ? group.assignedKarts
+          : activeKarts.map((k) => k.name);
+
+      const entries: SessionDriverEntry[] = group.drivers.map((d, dIdx) => {
+        const prevEntry = prevCard?.entries.find((e) => e.driverId === d.id);
+        const defaultKart = groupPool[dIdx % groupPool.length] || `Kart ${dIdx + 1}`;
+        return {
+          driverId: d.id,
+          driverName: d.name,
+          kartName: prevEntry?.kartName || defaultKart,
+          bestTime: prevEntry?.bestTime || '',
+          lastTime: prevEntry?.lastTime || '',
+          laps: prevEntry?.laps ?? 0,
+          transponderActive: prevEntry?.transponderActive ?? false,
+        };
+      });
 
       cards.push({
-        id: `warmup-${group.id}`,
+        id: cardId,
         title: `Warm-up • ${group.name}`,
         subtitle: 'Freies Training • Live-Sortierung nach schnellster Runde',
         kind: 'warmup',
         groupName: group.name,
         turnIndex: -1,
-        karasState: 'waiting',
+        karasState: prevCard?.karasState || 'waiting',
         entries,
         restingKarts: [],
       });
     });
   }
 
-  // 2. Qualifying-Läufe (Lauf 1 bis Lauf N)
   for (let t = 0; t < qualiTurns; t++) {
     groups.forEach((group) => {
+      const cardId = `quali-${group.id}-t${t + 1}`;
+      const prevCard = existingCards.find((c) => c.id === cardId);
+
+      const groupPool =
+        group.assignedKarts.length >= group.drivers.length
+          ? group.assignedKarts
+          : activeKarts.slice(0, Math.max(group.drivers.length, 1)).map((k) => k.name);
+
       const usedKartNames = new Set<string>();
 
       const entries: SessionDriverEntry[] = group.drivers.map((d, dIdx) => {
+        const prevEntry = prevCard?.entries.find((e) => e.driverId === d.id);
         const kartIdx =
           mode === 'rolling'
-            ? (dIdx + t) % rotationPool.length
-            : dIdx % rotationPool.length;
-        const assigned = rotationPool[kartIdx]?.name || '–';
-        usedKartNames.add(assigned);
+            ? (dIdx + t) % groupPool.length
+            : dIdx % groupPool.length;
+        const rotatedKart = groupPool[kartIdx] || `Kart ${dIdx + 1}`;
+
+        const finalKart =
+          prevCard && prevCard.karasState !== 'waiting' && prevEntry?.kartName
+            ? prevEntry.kartName
+            : rotatedKart;
+
+        usedKartNames.add(finalKart);
 
         return {
           driverId: d.id,
           driverName: d.name,
-          kartName: assigned,
-          bestTime: '',
-          lastTime: '',
-          laps: 0,
+          kartName: finalKart,
+          bestTime: prevEntry?.bestTime || '',
+          lastTime: prevEntry?.lastTime || '',
+          laps: prevEntry?.laps ?? 0,
+          transponderActive: prevEntry?.transponderActive ?? false,
         };
       });
 
-      const restingKarts =
-        mode === 'rolling'
-          ? rotationPool.map((k) => k.name).filter((name) => !usedKartNames.has(name))
-          : [];
+      const restingKarts = groupPool.filter((name) => !usedKartNames.has(name));
 
       cards.push({
-        id: `quali-${group.id}-t${t + 1}`,
+        id: cardId,
         title:
           mode === 'rolling'
             ? `KartRolling Lauf ${t + 1}/${qualiTurns} • ${group.name}`
             : `Qualifying ${t + 1}/${qualiTurns} • ${group.name}`,
         subtitle:
           mode === 'rolling'
-            ? 'Jeder fährt jedes Kart • Bestzeit zählt für die Gesamtsumme'
+            ? 'Jeder fährt jedes Kart der Gruppe • Bestzeit zählt für die Gesamtsumme'
             : 'Qualifikationslauf • Live-Sortierung nach schnellster Runde',
         kind: 'quali',
         groupName: group.name,
         turnIndex: t,
-        karasState: 'waiting',
+        karasState: prevCard?.karasState || 'waiting',
         entries,
         restingKarts,
       });
@@ -165,16 +212,51 @@ export function generateQualiSessionCards(
   return cards;
 }
 
-/**
- * Sortiert Fahrer innerhalb einer Karte:
- * - Warm-up & Qualifying: Nach schnellster Runde (aufsteigend)
- * - Finale: IMMER nach Position / Rundenanzahl (meiste Runden zuerst, bei Gleichstand Bestzeit bzw. Startplatz Pole P1)
- */
-export function sortSessionEntries(card: SessionCard): SessionDriverEntry[] {
-  const copy = [...card.entries];
+export function applyGroupKartPoolToCards(
+  cards: SessionCard[],
+  groupName: string,
+  newGroupKarts: string[],
+  mode: EventMode
+): SessionCard[] {
+  if (newGroupKarts.length === 0) return cards;
+
+  return cards.map((card) => {
+    if (card.groupName !== groupName || card.karasState !== 'waiting') {
+      return card;
+    }
+    const t = Math.max(0, card.turnIndex);
+    const used = new Set<string>();
+    const updatedEntries = card.entries.map((entry, dIdx) => {
+      const kartIdx =
+        mode === 'rolling' && card.kind === 'quali'
+          ? (dIdx + t) % newGroupKarts.length
+          : dIdx % newGroupKarts.length;
+      const assigned = newGroupKarts[kartIdx] || entry.kartName;
+      used.add(assigned);
+      return {
+        ...entry,
+        kartName: assigned,
+      };
+    });
+
+    return {
+      ...card,
+      entries: updatedEntries,
+      restingKarts: newGroupKarts.filter((k) => !used.has(k)),
+    };
+  });
+}
+
+export function sortSessionEntries(
+  card: SessionCard,
+  onlyActiveTransponders: boolean = false
+): SessionDriverEntry[] {
+  const base = onlyActiveTransponders
+    ? card.entries.filter(isEntryActive)
+    : [...card.entries];
 
   if (card.kind === 'final') {
-    return copy.sort((a, b) => {
+    return base.sort((a, b) => {
       if (b.laps !== a.laps) return b.laps - a.laps;
       const tA = parseFloat(a.bestTime);
       const tB = parseFloat(b.bestTime);
@@ -185,19 +267,17 @@ export function sortSessionEntries(card: SessionCard): SessionDriverEntry[] {
     });
   }
 
-  return copy.sort((a, b) => {
+  return base.sort((a, b) => {
     const tA = parseFloat(a.bestTime);
     const tB = parseFloat(b.bestTime);
     const validA = !isNaN(tA) && tA > 0 ? tA : 999999;
     const validB = !isNaN(tB) && tB > 0 ? tB : 999999;
-    return validA - validB;
+    if (validA !== validB) return validA - validB;
+    if (b.laps !== a.laps) return b.laps - a.laps;
+    return a.driverId - b.driverId;
   });
 }
 
-/**
- * Berechnet die Qualifying-Gesamtwertung über alle Gruppen & Läufe
- * Sortierung: Immer nach der schnellsten Gesamtzeit (niedrigste Summe bei allen gefahrenen Läufen)!
- */
 export function calculateOverallQualiStandings(
   groups: RaceGroup[],
   cards: SessionCard[],
@@ -213,12 +293,16 @@ export function calculateOverallQualiStandings(
     group.drivers.forEach((driver) => {
       const turnTimes: (number | null)[] = [];
       const turnKarts: string[] = [];
+      let anyActivity = false;
 
       for (let t = 0; t < qualiTurns; t++) {
         const card = qualiCards.find(
           (c) => c.groupName === group.name && c.turnIndex === t
         );
         const entry = card?.entries.find((e) => e.driverId === driver.id);
+        if (entry && isEntryActive(entry)) {
+          anyActivity = true;
+        }
         const parsed = entry ? parseFloat(entry.bestTime) : NaN;
         turnTimes.push(!isNaN(parsed) && parsed > 0 ? parsed : null);
         turnKarts.push(entry?.kartName || '–');
@@ -239,6 +323,7 @@ export function calculateOverallQualiStandings(
         completedTurns,
         totalTime,
         bestLap,
+        hasAnyActivity: anyActivity || completedTurns > 0,
         rank: 0,
         groupRank: 0,
         targetFinalName: '',
@@ -247,7 +332,6 @@ export function calculateOverallQualiStandings(
     });
   });
 
-  // Sortierung immer nach schnellster Gesamtzeit (bei nur 1 Lauf entspricht Gesamtzeit = Bestzeit)
   standings.sort((a, b) => {
     if (b.completedTurns !== a.completedTurns) {
       return b.completedTurns - a.completedTurns;
@@ -260,13 +344,12 @@ export function calculateOverallQualiStandings(
     return bestA - bestB;
   });
 
-  // Gesamtrang + Final-Zuteilung berechnen
   const cap = Math.min(Math.max(1, maxKartsOnTrack), Math.max(1, activeKartsCount));
   const groupCounters: Record<string, number> = {};
 
   return standings.map((s, idx) => {
     const overallRank = idx + 1;
-    const tierIndex = Math.floor(idx / cap); // 0 -> Gruppe A, 1 -> Gruppe B, 2 -> Gruppe C
+    const tierIndex = Math.floor(idx / cap);
     const tierLetter = String.fromCharCode(65 + tierIndex);
     const targetFinalName = `Finale Gruppe ${tierLetter}`;
     const targetGridPos = (idx % cap) + 1;
@@ -283,32 +366,37 @@ export function calculateOverallQualiStandings(
   });
 }
 
-/**
- * Erzeugt aus der Quali-Gesamtwertung die Finalläufe.
- * WICHTIG: Die langsamste Gruppe startet IMMER zuerst!
- * Also z.B. erst Finale Gruppe C -> dann Finale Gruppe B -> zum Schluss Finale Gruppe A (Top-Finale).
- * Bereits erfasste Runden/Zeiten aus bestehenden Final-Karten bleiben erhalten!
- */
 export function buildFinalCardsFromStandings(
   standings: OverallDriverStanding[],
   maxKartsOnTrack: number,
   activeKarts: KartItem[],
-  existingFinalCards: SessionCard[] = []
+  existingFinalCards: SessionCard[] = [],
+  groups: RaceGroup[] = []
 ): SessionCard[] {
-  const cap = Math.min(Math.max(1, maxKartsOnTrack), activeKarts.length);
+  const cap = Math.min(Math.max(1, maxKartsOnTrack), Math.max(1, activeKarts.length));
   if (cap <= 0 || standings.length === 0) return [];
 
-  const finalCount = Math.ceil(standings.length / cap);
+  const hasAnyQualiData = standings.some((s) => s.hasAnyActivity);
+  const eligibleStandings = hasAnyQualiData
+    ? standings.filter((s) => s.hasAnyActivity)
+    : standings;
+
+  const finalCount = Math.ceil(eligibleStandings.length / cap);
   const tiers: SessionCard[] = [];
 
   for (let tier = 0; tier < finalCount; tier++) {
-    const letter = String.fromCharCode(65 + tier); // 0='A', 1='B', 2='C'
-    const slice = standings.slice(tier * cap, (tier + 1) * cap);
+    const letter = String.fromCharCode(65 + tier);
+    const slice = eligibleStandings.slice(tier * cap, (tier + 1) * cap);
     const rankFrom = tier * cap + 1;
     const rankTo = tier * cap + slice.length;
 
     const cardId = `final-tier-${letter}`;
     const prevCard = existingFinalCards.find((c) => c.id === cardId);
+    const matchingGroup = groups.find((g) => g.name === `Gruppe ${letter}`) || groups[0];
+    const kartPool =
+      matchingGroup && matchingGroup.assignedKarts.length > 0
+        ? matchingGroup.assignedKarts
+        : activeKarts.map((k) => k.name);
 
     const groupTitle =
       tier === 0
@@ -322,11 +410,12 @@ export function buildFinalCardsFromStandings(
         driverName: st.driverName,
         kartName:
           prevEntry?.kartName ||
-          activeKarts[idx % activeKarts.length]?.name ||
+          kartPool[idx % kartPool.length] ||
           `Kart ${idx + 1}`,
         bestTime: prevEntry?.bestTime || '',
         lastTime: prevEntry?.lastTime || '',
         laps: prevEntry?.laps ?? 0,
+        transponderActive: prevEntry?.transponderActive ?? false,
         gridPos: idx + 1,
         qualiRank: st.rank,
         qualiTime: st.totalTime,
@@ -343,31 +432,23 @@ export function buildFinalCardsFromStandings(
       kind: 'final',
       groupName: `Finale Gruppe ${letter}`,
       turnIndex: tier,
-      finalTier: tier, // 0 = A (Schnellste), 1 = B, 2 = C
+      finalTier: tier,
       karasState: prevCard?.karasState || 'waiting',
       entries,
       restingKarts: [],
     });
   }
 
-  // Umkehren, damit die langsamste Gruppe (z.B. Gruppe B bzw. C) als ERSTES startet
-  // und Gruppe A als großes Finale zum Schluss fährt!
   return tiers.reverse();
 }
 
-/**
- * Berechnet die kombinierte Finale-Gesamtwertung über alle Final-Gruppen (Gruppe A + Gruppe B + ...).
- * - Im Modus 'tiered' (Standard): Gruppe A belegt die Plätze 1..N_A (sortiert nach Runden im A-Finale),
- *   Gruppe B belegt die Plätze (N_A+1)..(N_A+N_B) (sortiert nach Runden im B-Finale).
- * - Im Modus 'direct_laps': Alle Fahrer aller Finalgruppen werden direkt nach gefahrenen Runden & Bestzeit verglichen.
- */
 export function calculateCombinedFinalStandings(
   finalCards: SessionCard[],
-  mode: 'tiered' | 'direct_laps' = 'tiered'
+  mode: 'tiered' | 'direct_laps' = 'tiered',
+  onlyActive: boolean = false
 ): FinalOverallEntry[] {
   if (finalCards.length === 0) return [];
 
-  // Sortiere Gruppen von A (finalTier = 0) nach B (finalTier = 1) nach C (finalTier = 2)
   const cardsByTier = [...finalCards].sort(
     (a, b) => (a.finalTier ?? a.turnIndex) - (b.finalTier ?? b.turnIndex)
   );
@@ -375,7 +456,7 @@ export function calculateCombinedFinalStandings(
   const combined: FinalOverallEntry[] = [];
 
   cardsByTier.forEach((card) => {
-    const sortedGroupEntries = sortSessionEntries(card);
+    const sortedGroupEntries = sortSessionEntries(card, onlyActive);
     sortedGroupEntries.forEach((entry, idx) => {
       combined.push({
         overallRank: 0,
@@ -389,6 +470,7 @@ export function calculateCombinedFinalStandings(
         qualiRank: entry.qualiRank ?? 0,
         laps: entry.laps,
         bestTime: entry.bestTime,
+        transponderActive: entry.transponderActive,
         karasState: card.karasState,
       });
     });

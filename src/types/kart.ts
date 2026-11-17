@@ -4,10 +4,11 @@ export type FleetType = 'adult' | 'junior';
 export type EventMode = 'gp' | 'rolling';
 export type KarasState = 'waiting' | 'running' | 'stopped';
 export type SessionKind = 'warmup' | 'quali' | 'final';
+export type MainTab = 'setup' | 'rotation' | 'live' | 'finals' | 'print';
 export type PrintViewMode =
+  | 'rolling_plan'
   | 'current_card'
   | 'quali_total'
-  | 'rolling_plan'
   | 'final_results'
   | 'certificate';
 

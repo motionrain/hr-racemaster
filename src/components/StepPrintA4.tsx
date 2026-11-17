@@ -1,9 +1,10 @@
 // src/components/StepPrintA4.tsx
 import React, { useState } from 'react';
-import { Printer, Award, FileText, Table, Flag } from 'lucide-react';
+import { Printer, Award, FileText, Table, Flag, Grid } from 'lucide-react';
 import {
   OverallDriverStanding,
   PrintViewMode,
+  RaceGroup,
   SessionCard,
 } from '../types/kart';
 import { sortSessionEntries } from '../lib/raceLogic';
@@ -13,6 +14,7 @@ interface StepPrintA4Props {
   eventName: string;
   printMode: PrintViewMode;
   setPrintMode: (m: PrintViewMode) => void;
+  groups: RaceGroup[];
   currentCard: SessionCard | undefined;
   allCards: SessionCard[];
   standings: OverallDriverStanding[];
@@ -25,6 +27,7 @@ export default function StepPrintA4({
   eventName,
   printMode,
   setPrintMode,
+  groups,
   currentCard,
   allCards,
   standings,
@@ -34,6 +37,7 @@ export default function StepPrintA4({
   const [selectedDriverId, setSelectedDriverId] = useState<number>(
     standings[0]?.driverId || 1
   );
+  const [includeTimesInPlan, setIncludeTimesInPlan] = useState<boolean>(false);
 
   const selectedStanding =
     standings.find((s) => s.driverId === selectedDriverId) || standings[0];
@@ -54,9 +58,9 @@ export default function StepPrintA4({
       >
         <div className="flex flex-wrap gap-2">
           {[
+            { id: 'rolling_plan', label: 'Gruppen- & Rotationsplan (Matrix)', icon: Grid },
             { id: 'current_card', label: 'Aktueller Lauf', icon: FileText },
             { id: 'quali_total', label: 'Quali-Gesamtwertung', icon: Table },
-            { id: 'rolling_plan', label: 'KartRolling-Plan', icon: Table },
             { id: 'final_results', label: 'Final-Ergebnisse', icon: Flag },
             { id: 'certificate', label: 'Sieger-Urkunde (A4)', icon: Award },
           ].map((btn) => {
@@ -79,7 +83,19 @@ export default function StepPrintA4({
           })}
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {printMode === 'rolling_plan' && (
+            <label className="flex items-center space-x-2 text-xs font-bold cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeTimesInPlan}
+                onChange={(e) => setIncludeTimesInPlan(e.target.checked)}
+                className="w-4 h-4 accent-amber-500 rounded"
+              />
+              <span>Gefahrene Zeiten im Plan anzeigen</span>
+            </label>
+          )}
+
           {printMode === 'certificate' && (
             <select
               value={selectedDriverId}
@@ -106,14 +122,14 @@ export default function StepPrintA4({
       </div>
 
       {/* DIN-A4 DRUCKBLATT */}
-      <div className="bg-white text-black p-10 rounded-2xl shadow-xl max-w-[210mm] mx-auto print:shadow-none print:p-0 print:max-w-none">
+      <div className="bg-white text-black p-8 sm:p-10 rounded-2xl shadow-xl max-w-[210mm] mx-auto print:shadow-none print:p-0 print:max-w-none">
         {/* Motorsport Header */}
-        <div className="border-b-4 border-black pb-4 mb-6 flex justify-between items-end">
+        <div className="border-b-4 border-black pb-3 mb-5 flex justify-between items-end">
           <div>
-            <div className="text-xs font-black uppercase tracking-widest text-neutral-500">
+            <div className="text-[11px] font-black uppercase tracking-widest text-neutral-500">
               KARTBAHN RHEINFELDEN • HR-RACEMASTER TIMING
             </div>
-            <h1 className="text-3xl font-black uppercase tracking-tight mt-0.5">
+            <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-tight mt-0.5">
               {eventName}
             </h1>
           </div>
@@ -123,7 +139,132 @@ export default function StepPrintA4({
           </div>
         </div>
 
-        {/* 1. AKTUELLER LAUF */}
+        {/* 1. GRUPPEN- & KARTROLLING-GESAMTPLAN (MATRIX FÜR AUSHANG) */}
+        {printMode === 'rolling_plan' && (
+          <div className="space-y-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <h2 className="text-lg font-black uppercase">
+                  Offizieller Gruppen- & Kart-Rotationsplan (Boxengassen-Aushang)
+                </h2>
+                <p className="text-xs text-neutral-600">
+                  Jeder Fahrer wechselt nach jedem Lauf in das nächste zugeteilte Kart ({groups.length} Gruppen × {qualiTurns} Läufe).
+                </p>
+              </div>
+            </div>
+
+            {groups.map((group) => {
+              const groupQualiCards = Array.from({ length: qualiTurns }, (_, t) =>
+                allCards.find(
+                  (c) =>
+                    c.kind === 'quali' &&
+                    c.groupName === group.name &&
+                    c.turnIndex === t
+                )
+              );
+
+              const hasRestingRow = groupQualiCards.some(
+                (c) => c && c.restingKarts && c.restingKarts.length > 0
+              );
+
+              return (
+                <div
+                  key={group.id}
+                  className="border-2 border-black rounded-lg overflow-hidden break-inside-avoid"
+                >
+                  <div className="bg-black text-white px-3 py-1.5 flex justify-between items-center text-xs font-black uppercase">
+                    <span>
+                      {group.name} ({group.drivers.length} Fahrer)
+                    </span>
+                    <span>{qualiTurns} Läufe • Kart-Zuteilung</span>
+                  </div>
+
+                  <table className="w-full text-[11px] border-collapse">
+                    <thead>
+                      <tr className="bg-neutral-100 border-b border-black uppercase font-black">
+                        <th className="py-1.5 px-2 text-center w-14 border-r border-neutral-300">
+                          Start-Nr.
+                        </th>
+                        <th className="py-1.5 px-2.5 text-left border-r border-neutral-300">
+                          Fahrer
+                        </th>
+                        {Array.from({ length: qualiTurns }, (_, t) => (
+                          <th
+                            key={t}
+                            className="py-1.5 px-1.5 text-center border-r border-neutral-300 last:border-r-0"
+                          >
+                            Lauf {t + 1}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-300">
+                      {group.drivers.map((driver) => (
+                        <tr key={driver.id}>
+                          <td className="py-1.5 px-2 text-center font-mono font-black border-r border-neutral-300">
+                            {driver.id}
+                          </td>
+                          <td className="py-1.5 px-2.5 font-bold border-r border-neutral-300">
+                            {driver.name}
+                          </td>
+                          {Array.from({ length: qualiTurns }, (_, t) => {
+                            const card = groupQualiCards[t];
+                            const entry = card?.entries.find(
+                              (e) => e.driverId === driver.id
+                            );
+                            const hasTime =
+                              entry?.bestTime && parseFloat(entry.bestTime) > 0;
+                            return (
+                              <td
+                                key={t}
+                                className="py-1.5 px-1.5 text-center font-mono border-r border-neutral-300 last:border-r-0"
+                              >
+                                <div className="font-black">
+                                  {entry?.kartName || '–'}
+                                </div>
+                                {includeTimesInPlan && hasTime && (
+                                  <div className="text-[9px] text-neutral-600">
+                                    {Number(entry?.bestTime).toFixed(3)}s
+                                  </div>
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+
+                      {/* Zeile für Freies Kart (Pause in Boxengasse) */}
+                      {hasRestingRow && (
+                        <tr className="bg-neutral-100 border-t-2 border-black font-bold">
+                          <td className="py-1.5 px-2 text-center font-mono border-r border-neutral-300">
+                            –
+                          </td>
+                          <td className="py-1.5 px-2.5 uppercase text-[10px] font-black border-r border-neutral-300">
+                            Freies Kart (Pause in Box)
+                          </td>
+                          {Array.from({ length: qualiTurns }, (_, t) => {
+                            const card = groupQualiCards[t];
+                            const resting = card?.restingKarts || [];
+                            return (
+                              <td
+                                key={t}
+                                className="py-1.5 px-1.5 text-center font-mono font-black border-r border-neutral-300 last:border-r-0"
+                              >
+                                {resting.length > 0 ? resting.join(', ') : '–'}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* 2. AKTUELLER LAUF */}
         {printMode === 'current_card' && currentCard && (
           <div>
             <h2 className="text-xl font-black uppercase mb-1">
@@ -157,7 +298,7 @@ export default function StepPrintA4({
           </div>
         )}
 
-        {/* 2. QUALIFYING GESAMTWERTUNG */}
+        {/* 3. QUALIFYING GESAMTWERTUNG */}
         {printMode === 'quali_total' && (
           <div>
             <h2 className="text-xl font-black uppercase mb-4">
@@ -199,43 +340,6 @@ export default function StepPrintA4({
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-
-        {/* 3. KARTROLLING PLAN */}
-        {printMode === 'rolling_plan' && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-black uppercase">
-              Kart- & Rotationsplan (Boxengassen-Aushang)
-            </h2>
-            {allCards
-              .filter((c) => c.kind === 'quali')
-              .map((c) => (
-                <div
-                  key={c.id}
-                  className="border border-neutral-400 rounded-lg p-3 break-inside-avoid"
-                >
-                  <div className="font-black text-sm mb-2 flex justify-between">
-                    <span>{c.title}</span>
-                    {c.restingKarts.length > 0 && (
-                      <span className="text-xs font-mono">
-                        Pause in Box: {c.restingKarts.join(', ')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-                    {c.entries.map((e) => (
-                      <div
-                        key={e.driverId}
-                        className="border border-neutral-300 p-1.5 rounded flex justify-between"
-                      >
-                        <span className="font-bold">{e.driverName}</span>
-                        <span className="font-mono font-black">{e.kartName}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
           </div>
         )}
 
@@ -332,7 +436,7 @@ export default function StepPrintA4({
           </div>
         )}
 
-        <div className="mt-10 pt-3 border-t border-neutral-300 flex justify-between text-[10px] text-neutral-500">
+        <div className="mt-8 pt-3 border-t border-neutral-300 flex justify-between text-[10px] text-neutral-500">
           <span>HR-RaceMaster • Offizieller Zeitnahme-Beleg</span>
           <span>© Copyright Hans Richter</span>
         </div>

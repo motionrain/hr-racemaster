@@ -22,14 +22,15 @@ export const JUNIOR_FLEET: KartItem[] = Array.from({ length: 8 }, (_, i) => ({
 }));
 
 /**
- * Teilt Fahrer fair auf Gruppen auf (z.B. 20 Fahrer bei Max 8 -> 7, 7, 6)
+ * Teilt Fahrer fair auf Gruppen auf (z.B. 22 Fahrer bei Max 8 -> 8, 7, 7)
  */
 export function buildBalancedGroups(
   drivers: Driver[],
   maxKartsOnTrack: number,
   availableKartsCount: number
 ): RaceGroup[] {
-  const effectiveLimit = Math.min(maxKartsOnTrack, availableKartsCount);
+  const safeMax = Math.max(1, maxKartsOnTrack || 1);
+  const effectiveLimit = Math.min(safeMax, Math.max(1, availableKartsCount));
   if (drivers.length === 0 || effectiveLimit <= 0) return [];
 
   const groupCount = Math.ceil(drivers.length / effectiveLimit);
@@ -64,7 +65,7 @@ export function getQualiTurnCount(
   gpQualiCount: number,
   groups: RaceGroup[]
 ): number {
-  if (mode === 'gp') return gpQualiCount;
+  if (mode === 'gp') return Math.max(1, gpQualiCount);
   return groups.reduce((max, g) => Math.max(max, g.drivers.length), 0);
 }
 
@@ -112,7 +113,7 @@ export function generateQualiSessionCards(
     });
   }
 
-  // 2. Qualifying-Läufe (Turn 1 bis Turn N)
+  // 2. Qualifying-Läufe (Lauf 1 bis Lauf N)
   for (let t = 0; t < qualiTurns; t++) {
     groups.forEach((group) => {
       const usedKartNames = new Set<string>();
@@ -190,7 +191,7 @@ export function sortSessionEntries(card: SessionCard): SessionDriverEntry[] {
 }
 
 /**
- * Berechnet die Qualifying-Gesamtwertung über alle Gruppen & Turns
+ * Berechnet die Qualifying-Gesamtwertung über alle Gruppen & Läufe
  */
 export function calculateOverallQualiStandings(
   groups: RaceGroup[],
@@ -259,7 +260,7 @@ export function buildFinalCardsFromStandings(
   maxKartsOnTrack: number,
   activeKarts: KartItem[]
 ): SessionCard[] {
-  const cap = Math.min(maxKartsOnTrack, activeKarts.length);
+  const cap = Math.min(Math.max(1, maxKartsOnTrack), activeKarts.length);
   if (cap <= 0 || standings.length === 0) return [];
 
   const finalCount = Math.ceil(standings.length / cap);

@@ -7,6 +7,7 @@ import {
   EventMode,
   FleetType,
   KartItem,
+  MainTab,
   PrintViewMode,
   SessionCard,
 } from '../types/kart';
@@ -22,6 +23,7 @@ import {
 import { useKarasBridge } from '../hooks/useKarasBridge';
 import Header from '../components/Header';
 import StepSetup from '../components/StepSetup';
+import StepRotationBoard from '../components/StepRotationBoard';
 import StepLiveCards from '../components/StepLiveCards';
 import StepFinals from '../components/StepFinals';
 import StepPrintA4 from '../components/StepPrintA4';
@@ -53,7 +55,7 @@ const DEFAULT_DRIVERS = [
 
 export default function HRRaceMasterPage() {
   const [darkMode, setDarkMode] = useState<boolean>(true);
-  const [activeTab, setActiveTab] = useState<'setup' | 'live' | 'finals' | 'print'>('setup');
+  const [activeTab, setActiveTab] = useState<MainTab>('setup');
 
   // Setup-State
   const [eventName, setEventName] = useState<string>('KartRolling Grand Prix');
@@ -69,7 +71,7 @@ export default function HRRaceMasterPage() {
   const [sessionCards, setSessionCards] = useState<SessionCard[]>([]);
   const [activeCardIndex, setActiveCardIndex] = useState<number>(0);
   const [finalCards, setFinalCards] = useState<SessionCard[]>([]);
-  const [printMode, setPrintMode] = useState<PrintViewMode>('quali_total');
+  const [printMode, setPrintMode] = useState<PrintViewMode>('rolling_plan');
 
   const activeKarts = useMemo(() => karts.filter((k) => k.active), [karts]);
 
@@ -134,6 +136,20 @@ export default function HRRaceMasterPage() {
     setSessionCards(generated);
     setActiveCardIndex(0);
     setActiveTab('live');
+  };
+
+  const handleOpenRotationBoard = () => {
+    // Falls sich Setup geändert hat und noch keine passenden Karten existieren, frisch erzeugen
+    const generated = generateQualiSessionCards(
+      groups,
+      activeKarts,
+      eventMode,
+      hasWarmup,
+      qualiTurns
+    );
+    setSessionCards(generated);
+    setActiveCardIndex(0);
+    setActiveTab('rotation');
   };
 
   const handleUpdateCard = (updated: SessionCard) => {
@@ -212,6 +228,27 @@ export default function HRRaceMasterPage() {
             setRawDriversText={setRawDriversText}
             groups={groups}
             onInitializeSessions={handleInitializeSessions}
+            onOpenRotationBoard={handleOpenRotationBoard}
+          />
+        )}
+
+        {activeTab === 'rotation' && (
+          <StepRotationBoard
+            darkMode={darkMode}
+            eventName={eventName}
+            groups={groups}
+            cards={sessionCards}
+            qualiTurns={qualiTurns}
+            activeCardIndex={activeCardIndex}
+            standings={standings}
+            onSelectCardIndex={(idx) => {
+              setActiveCardIndex(idx);
+              setActiveTab('live');
+            }}
+            onPrintPlan={() => {
+              setPrintMode('rolling_plan');
+              setActiveTab('print');
+            }}
           />
         )}
 
@@ -258,6 +295,7 @@ export default function HRRaceMasterPage() {
             eventName={eventName}
             printMode={printMode}
             setPrintMode={setPrintMode}
+            groups={groups}
             currentCard={currentCard}
             allCards={sessionCards}
             standings={standings}

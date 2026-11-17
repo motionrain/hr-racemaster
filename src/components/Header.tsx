@@ -1,11 +1,12 @@
 // src/components/Header.tsx
 import React from 'react';
-import { Trophy, Settings, Activity, Flag, Printer, Sun, Moon } from 'lucide-react';
+import { Trophy, Settings, Grid, Activity, Flag, Printer, Sun, Moon } from 'lucide-react';
+import { MainTab } from '../types/kart';
 
 interface HeaderProps {
   eventName: string;
-  activeTab: 'setup' | 'live' | 'finals' | 'print';
-  setActiveTab: (tab: 'setup' | 'live' | 'finals' | 'print') => void;
+  activeTab: MainTab;
+  setActiveTab: (tab: MainTab) => void;
   darkMode: boolean;
   setDarkMode: (val: boolean) => void;
   activeKartsCount: number;
@@ -21,12 +22,13 @@ export default function Header({
   activeKartsCount,
   maxTrackKarts,
 }: HeaderProps) {
-  const navItems = [
+  const navItems: { id: MainTab; label: string; icon: React.ElementType }[] = [
     { id: 'setup', label: '1. Event & Karts', icon: Settings },
-    { id: 'live', label: '2. Live-Karten (KaRaS)', icon: Activity },
-    { id: 'finals', label: '3. Finale (Runden)', icon: Flag },
-    { id: 'print', label: '4. A4 Druck & Urkunde', icon: Printer },
-  ] as const;
+    { id: 'rotation', label: '2. Gruppen & Rotations-Plan (Live)', icon: Grid },
+    { id: 'live', label: '3. Live-Karten (KaRaS)', icon: Activity },
+    { id: 'finals', label: '4. Finale (Runden)', icon: Flag },
+    { id: 'print', label: '5. A4 Druck & Urkunde', icon: Printer },
+  ];
 
   return (
     <header
@@ -64,7 +66,7 @@ export default function Header({
               <button
                 key={item.id}
                 onClick={() => setActiveTab(item.id)}
-                className={`flex items-center px-4 py-2 rounded-lg text-sm font-bold transition ${
+                className={`flex items-center px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
                   isActive
                     ? 'bg-amber-500 text-black shadow-md'
                     : darkMode
@@ -72,7 +74,7 @@ export default function Header({
                     : 'bg-[#E6E6E6] text-[#404040] hover:bg-[#D3D3D3]'
                 }`}
               >
-                <Icon className="w-4 h-4 mr-2" />
+                <Icon className="w-4 h-4 mr-1.5" />
                 {item.label}
               </button>
             );

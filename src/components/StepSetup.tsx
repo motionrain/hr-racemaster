@@ -1,6 +1,16 @@
 // src/components/StepSetup.tsx
 import React from 'react';
-import { CheckCircle2, XCircle, Users, Wrench, Play, ShieldAlert } from 'lucide-react';
+import {
+  CheckCircle2,
+  XCircle,
+  Users,
+  Wrench,
+  Play,
+  ShieldAlert,
+  Minus,
+  Plus,
+  Grid,
+} from 'lucide-react';
 import { EventMode, FleetType, KartItem, RaceGroup } from '../types/kart';
 
 interface StepSetupProps {
@@ -23,6 +33,7 @@ interface StepSetupProps {
   setRawDriversText: (v: string) => void;
   groups: RaceGroup[];
   onInitializeSessions: () => void;
+  onOpenRotationBoard: () => void;
 }
 
 export default function StepSetup({
@@ -45,6 +56,7 @@ export default function StepSetup({
   setRawDriversText,
   groups,
   onInitializeSessions,
+  onOpenRotationBoard,
 }: StepSetupProps) {
   const cardBg = darkMode
     ? 'bg-[#1A1A1A] border-[#272727] text-[#FAFAFA]'
@@ -55,6 +67,11 @@ export default function StepSetup({
     : 'bg-[#F5F5F5] border-[#D3D3D3] text-[#1A1A1A]';
 
   const activeKartsCount = karts.filter((k) => k.active).length;
+
+  const handleMaxKartsChange = (val: number) => {
+    const clamped = Math.max(1, Math.min(25, val || 1));
+    setMaxTrackKarts(clamped);
+  };
 
   return (
     <div className="space-y-6">
@@ -87,7 +104,7 @@ export default function StepSetup({
             >
               <div className="font-black text-base mb-1">🏆 1. GP Rennen</div>
               <p className="text-xs opacity-75">
-                Optionales Warm-up, 1 bis 4 Qualifyings & Finalläufe (A/B/C) nach Rundenanzahl.
+                Optionales Warm-up, 1 bis 5 Qualifyings & Finalläufe (A/B/C) nach Rundenanzahl.
               </p>
             </button>
 
@@ -108,7 +125,7 @@ export default function StepSetup({
           </div>
 
           {/* Optionen */}
-          <div className="space-y-3 pt-4 border-t border-[#535353]/30 text-sm">
+          <div className="space-y-4 pt-4 border-t border-[#535353]/30 text-sm">
             <label className="flex items-center justify-between cursor-pointer">
               <span className="font-bold">Warm-up vor dem Qualifying fahren?</span>
               <input
@@ -123,7 +140,7 @@ export default function StepSetup({
               <div className="flex items-center justify-between">
                 <span className="font-bold">Anzahl Qualifikations-Läufe:</span>
                 <div className="flex space-x-1.5">
-                  {[1, 2, 3, 4].map((num) => (
+                  {[1, 2, 3, 4, 5].map((num) => (
                     <button
                       key={num}
                       type="button"
@@ -132,28 +149,80 @@ export default function StepSetup({
                         gpQualiCount === num ? 'bg-amber-500 text-black' : subBg
                       }`}
                     >
-                      {num}x Quali
+                      {num}x
                     </button>
                   ))}
                 </div>
               </div>
             )}
 
-            <div className="flex items-center justify-between pt-2">
-              <span className="font-bold">Max. Streckenbelegung pro Gruppe:</span>
-              <div className="flex space-x-2">
-                {[8, 10].map((limit) => (
+            {/* Frei einstellbare Max. Streckenbelegung pro Gruppe */}
+            <div className="pt-2 border-t border-[#535353]/20">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div>
+                  <span className="font-bold block">Max. Streckenbelegung pro Gruppe:</span>
+                  <span className="text-xs opacity-65">
+                    Frei wählbar (z. B. 6, 7, 8, 9, 10 oder 12 Karts gleichzeitig)
+                  </span>
+                </div>
+
+                {/* Numerische Eingabe mit +/- Buttons */}
+                <div className="flex items-center space-x-1.5">
                   <button
-                    key={limit}
                     type="button"
-                    onClick={() => setMaxTrackKarts(limit)}
-                    className={`px-4 py-1.5 rounded-lg font-black text-xs transition ${
-                      maxTrackKarts === limit ? 'bg-amber-500 text-black shadow' : subBg
+                    onClick={() => handleMaxKartsChange(maxTrackKarts - 1)}
+                    className={`p-2 rounded-lg border hover:border-amber-500 transition ${subBg}`}
+                    title="1 Kart weniger"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={25}
+                    value={maxTrackKarts}
+                    onChange={(e) => handleMaxKartsChange( parseInt(e.target.value, 10) )}
+                    className={`w-16 px-2 py-1.5 rounded-lg border text-center font-mono font-black text-base focus:outline-none focus:border-amber-500 ${subBg}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleMaxKartsChange(maxTrackKarts + 1)}
+                    className={`p-2 rounded-lg border hover:border-amber-500 transition ${subBg}`}
+                    title="1 Kart mehr"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Schnellwahl-Buttons */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                <span className="text-xs opacity-65 mr-1">Schnellwahl:</span>
+                {[6, 7, 8, 9, 10, 12].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => handleMaxKartsChange(preset)}
+                    className={`px-2.5 py-1 rounded-md font-bold text-xs border transition ${
+                      maxTrackKarts === preset
+                        ? 'bg-amber-500 text-black border-amber-500 shadow'
+                        : subBg
                     }`}
                   >
-                    Max. {limit} Karts
+                    Max. {preset}
                   </button>
                 ))}
+                <button
+                  type="button"
+                  onClick={() => handleMaxKartsChange(activeKartsCount)}
+                  className={`px-2.5 py-1 rounded-md font-bold text-xs border transition ${
+                    maxTrackKarts === activeKartsCount
+                      ? 'bg-amber-500 text-black border-amber-500 shadow'
+                      : subBg
+                  }`}
+                >
+                  Alle Aktiven ({activeKartsCount})
+                </button>
               </div>
             </div>
           </div>
@@ -259,7 +328,7 @@ export default function StepSetup({
           <div className="flex flex-col justify-between">
             <div>
               <h3 className="text-base font-black mb-2">
-                Automatische Gruppeneinteilung ({groups.length} Gruppen)
+                Automatische Gruppeneinteilung ({groups.length} Gruppen • Max. {Math.min(maxTrackKarts, activeKartsCount)} pro Gruppe)
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
                 {groups.map((g) => (
@@ -269,9 +338,9 @@ export default function StepSetup({
                       <span>{g.drivers.length} Fahrer</span>
                     </div>
                     <div className="text-xs space-y-0.5 opacity-85">
-                      {g.drivers.map((d, i) => (
+                      {g.drivers.map((d) => (
                         <div key={d.id}>
-                          {i + 1}. {d.name}
+                          #{d.id} {d.name}
                         </div>
                       ))}
                     </div>
@@ -280,14 +349,25 @@ export default function StepSetup({
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onInitializeSessions}
-              className="mt-4 w-full py-3.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-base shadow-lg flex items-center justify-center transition"
-            >
-              <Play className="w-5 h-5 mr-2 fill-black" />
-              Rennkarten erzeugen & Live-Betrieb starten
-            </button>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={onOpenRotationBoard}
+                className={`py-3.5 px-4 rounded-xl border font-black text-sm flex items-center justify-center transition hover:border-amber-500 ${subBg}`}
+              >
+                <Grid className="w-4 h-4 mr-2 text-amber-500" />
+                Gesamtansicht / Live-Screen
+              </button>
+
+              <button
+                type="button"
+                onClick={onInitializeSessions}
+                className="py-3.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black text-sm shadow-lg flex items-center justify-center transition"
+              >
+                <Play className="w-4 h-4 mr-2 fill-black" />
+                Karten neu erzeugen & Start
+              </button>
+            </div>
           </div>
         </div>
       </div>

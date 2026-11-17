@@ -17,7 +17,8 @@ export function useKarasBridge({ activeCard, onUpdateCard }: UseKarasBridgeProps
 
     const timer = setInterval(async () => {
       try {
-        const res = await fetch('http://localhost:8080/status');
+        const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+        const res = await fetch(`http://${host}:8080/status`);
         if (!res.ok) throw new Error('Bridge offline');
         const data = await res.json();
         setBridgeOnline(true);

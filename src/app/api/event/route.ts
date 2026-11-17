@@ -6,15 +6,12 @@ import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-const DATA_FILE = path.join(process.cwd(), 'racemaster-live-state.json');
+const DATA_FILE = path.join(os.tmpdir(), 'racemaster-live-state.json');
 
 interface SharedRaceState {
   eventName: string;
   drivers: string[];
   updatedAt: number;
-  sessionCards?: unknown[];
-  finalCards?: unknown[];
-  activeCardIndex?: number;
 }
 
 const DEFAULT_DRIVERS = [
@@ -36,65 +33,87 @@ const DEFAULT_DRIVERS = [
   'Jona Kofel',
 ];
 
-function getLocalLanIp(): string {
-  const nets = os.networkInterfaces();
-  let fallbackIp = 'localhost';
+const globalForRace = globalThis as unknown as {
+  __raceMasterState?: SharedRaceState;
+};
 
-  for (const name of Object.keys(nets)) {
-    const netList = nets[name];
-    if (!netList) continue;
-    for (const net of netList) {
-      if (net.family === 'IPv4' && !net.internal) {
-        // Bevorzuge typische Heim-/Firmennetzwerke (192.168.x.x oder 10.x.x.x)
-        if (net.address.startsWith('192.168.') || net.address.startsWith('10.')) {
-          return net.address;
+function getLocalLanIp(): string {
+  try {
+    const nets = os.networkInterfaces();
+    let fallbackIp = 'localhost';
+    for (const name of Object.keys(nets)) {
+      const netList = nets[name];
+      if (!netList) continue;
+      for (const net of netList) {
+        if (net.family === 'IPv4' && !net.internal) {
+          if (net.address.startsWith('192.168.') || net.address.startsWith('10.')) {
+            return net.address;
+          }
+          fallbackIp = net.address;
         }
-        fallbackIp = net.address;
       }
     }
+    return fallbackIp;
+  } catch {
+    return 'localhost';
   }
-  return fallbackIp;
 }
 
 function readState(): SharedRaceState {
+  if (globalForRace.__raceMasterState) {
+    return globalForRace.__raceMasterState;
+  }
   try {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (parsed && Array.isArray(parsed.drivers)) {
+        globalForRace.__raceMasterState = parsed;
         return parsed;
       }
     }
   } catch {
-    // Fallback bei Lesefehler
+    // Ignoriere Dateifehler, nutze RAM-State
   }
   const initial: SharedRaceState = {
     eventName: 'KartRolling Grand Prix',
-    drivers: DEFAULT_DRIVERS,
+    drivers: [...DEFAULT_DRIVERS],
     updatedAt: Date.now(),
   };
+  globalForRace.__raceMasterState = initial;
   writeState(initial);
   return initial;
 }
 
 function writeState(state: SharedRaceState) {
+  globalForRace.__raceMasterState = state;
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Fehler beim Speichern des RaceMaster-Status:', err);
+  } catch {
+    // Falls /tmp gesperrt ist, läuft alles weiter im RAM
   }
 }
 
 export async function GET() {
-  const state = readState();
-  const lanIp = getLocalLanIp();
-
-  return NextResponse.json({
-    ...state,
-    lanIp,
-    mobileUrl: `http://${lanIp}:3000/mobile`,
-    mainUrl: `http://${lanIp}:3000`,
-  });
+  try {
+    const state = readState();
+    const lanIp = getLocalLanIp();
+    return NextResponse.json({
+      ...state,
+      lanIp,
+      mobileUrl: `http://${lanIp}:3000/mobile`,
+      mainUrl: `http://${lanIp}:3000`,
+    });
+  } catch {
+    return NextResponse.json({
+      eventName: 'KartRolling Grand Prix',
+      drivers: DEFAULT_DRIVERS,
+      updatedAt: Date.now(),
+      lanIp: 'localhost',
+      mobileUrl: 'http://localhost:3000/mobile',
+      mainUrl: 'http://localhost:3000',
+    });
+  }
 }
 
 export async function POST(request: Request) {
@@ -102,7 +121,6 @@ export async function POST(request: Request) {
     const body = await request.json();
     const state = readState();
 
-    // 1. Einzelnen Fahrer vom Smartphone hinzufügen
     if (body.action === 'add_driver' && typeof body.name === 'string') {
       const cleanName = body.name.trim();
       if (cleanName) {
@@ -110,9 +128,7 @@ export async function POST(request: Request) {
         state.updatedAt = Date.now();
         writeState(state);
       }
-    }
-    // 2. Mehrere Fahrer auf einmal vom Smartphone hinzufügen
-    else if (body.action === 'add_multiple' && Array.isArray(body.names)) {
+    } else if (body.action === 'add_multiple' && Array.isArray(body.names)) {
       const validNames = body.names
         .map((n: unknown) => (typeof n === 'string' ? n.trim() : ''))
         .filter(Boolean);
@@ -121,40 +137,28 @@ export async function POST(request: Request) {
         state.updatedAt = Date.now();
         writeState(state);
       }
-    }
-    // 3. Fahrernamen am Smartphone korrigieren / umbenennen
-    else if (
+    } else if (
       body.action === 'update_driver' &&
       typeof body.index === 'number' &&
       typeof body.name === 'string'
     ) {
       const cleanName = body.name.trim();
-      if (
-        cleanName &&
-        body.index >= 0 &&
-        body.index < state.drivers.length
-      ) {
+      if (cleanName && body.index >= 0 && body.index < state.drivers.length) {
         state.drivers[body.index] = cleanName;
         state.updatedAt = Date.now();
         writeState(state);
       }
-    }
-    // 4. Einzelnen Fahrer am Smartphone löschen
-    else if (body.action === 'remove_driver' && typeof body.index === 'number') {
+    } else if (body.action === 'remove_driver' && typeof body.index === 'number') {
       if (body.index >= 0 && body.index < state.drivers.length) {
         state.drivers.splice(body.index, 1);
         state.updatedAt = Date.now();
         writeState(state);
       }
-    }
-    // 5. Komplette Fahrerliste leeren
-    else if (body.action === 'clear_drivers') {
+    } else if (body.action === 'clear_drivers') {
       state.drivers = [];
       state.updatedAt = Date.now();
       writeState(state);
-    }
-    // 6. Komplette Fahrerliste oder Event-Name vom Haupt-PC / Smartphone setzen
-    else if (body.action === 'set_drivers' && Array.isArray(body.drivers)) {
+    } else if (body.action === 'set_drivers' && Array.isArray(body.drivers)) {
       state.drivers = body.drivers
         .map((n: unknown) => (typeof n === 'string' ? n.trim() : ''))
         .filter(Boolean);
@@ -163,9 +167,7 @@ export async function POST(request: Request) {
       }
       state.updatedAt = Date.now();
       writeState(state);
-    }
-    // 7. Event-Name ändern
-    else if (body.action === 'set_event_name' && typeof body.eventName === 'string') {
+    } else if (body.action === 'set_event_name' && typeof body.eventName === 'string') {
       state.eventName = body.eventName.trim() || state.eventName;
       state.updatedAt = Date.now();
       writeState(state);
@@ -178,10 +180,7 @@ export async function POST(request: Request) {
       mobileUrl: `http://${lanIp}:3000/mobile`,
       mainUrl: `http://${lanIp}:3000`,
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: 'Ungültige Anfrage', details: String(error) },
-      { status: 400 }
-    );
+  } catch {
+    return NextResponse.json(readState());
   }
 }

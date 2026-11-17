@@ -1,7 +1,7 @@
 // src/app/page.tsx
 'use client';
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import {
   Driver,
   EventMode,
@@ -45,12 +45,6 @@ const DEFAULT_DRIVERS = [
   'Philipp Jetzer',
   'Heiri Kofel',
   'Jona Kofel',
-  'Michael Jetzer',
-  'Jonas Lauwiller',
-  'Manuel Oliveira',
-  'Patrick Baumeister',
-  'Chris Callerame',
-  'Thomas Gubler',
 ].join('\n');
 
 export default function HRRaceMasterPage() {
@@ -67,11 +61,12 @@ export default function HRRaceMasterPage() {
   const [karts, setKarts] = useState<KartItem[]>(ADULT_FLEET);
   const [rawDriversText, setRawDriversText] = useState<string>(DEFAULT_DRIVERS);
 
-  // Lauf-Karten & Finale
+  // Lauf-Karten (Warm-up / Quali) & Final-Karten (Langsamste Gruppe zuerst!)
   const [sessionCards, setSessionCards] = useState<SessionCard[]>([]);
   const [activeCardIndex, setActiveCardIndex] = useState<number>(0);
   const [finalCards, setFinalCards] = useState<SessionCard[]>([]);
-  const [printMode, setPrintMode] = useState<PrintViewMode>('rolling_plan');
+  const [activeFinalIndex, setActiveFinalIndex] = useState<number>(0);
+  const [printMode, setPrintMode] = useState<PrintViewMode>('quali_total');
 
   const activeKarts = useMemo(() => karts.filter((k) => k.active), [karts]);
 
@@ -94,11 +89,19 @@ export default function HRRaceMasterPage() {
   );
 
   const standings = useMemo(
-    () => calculateOverallQualiStandings(groups, sessionCards, qualiTurns, eventMode),
-    [groups, sessionCards, qualiTurns, eventMode]
+    () =>
+      calculateOverallQualiStandings(
+        groups,
+        sessionCards,
+        qualiTurns,
+        eventMode,
+        maxTrackKarts,
+        activeKarts.length
+      ),
+    [groups, sessionCards, qualiTurns, eventMode, maxTrackKarts, activeKarts.length]
   );
 
-  // Beim ersten Laden initiale Karten erzeugen
+  // Beim ersten Laden initiale Quali-Karten erzeugen
   useEffect(() => {
     if (sessionCards.length === 0 && groups.length > 0) {
       const initial = generateQualiSessionCards(
@@ -112,11 +115,25 @@ export default function HRRaceMasterPage() {
     }
   }, [groups, activeKarts, eventMode, hasWarmup, qualiTurns, sessionCards.length]);
 
+  // Final-Karten automatisch bereitstellen/synchronisieren, sobald man den Finale-Tab öffnet
+  useEffect(() => {
+    if ((activeTab === 'finals' || activeTab === 'print') && standings.length > 0 && finalCards.length === 0) {
+      const generatedFinals = buildFinalCardsFromStandings(
+        standings,
+        maxTrackKarts,
+        activeKarts,
+        []
+      );
+      setFinalCards(generatedFinals);
+      setActiveFinalIndex(0);
+    }
+  }, [activeTab, standings, maxTrackKarts, activeKarts, finalCards.length]);
+
   const handleFleetChange = (type: FleetType) => {
     setFleetType(type);
     const nextFleet = type === 'adult' ? ADULT_FLEET : JUNIOR_FLEET;
     setKarts(nextFleet);
-    setMaxTrackKarts(type === 'adult' ? 8 : 8);
+    setMaxTrackKarts(8);
   };
 
   const handleToggleKart = (id: number) => {
@@ -139,42 +156,52 @@ export default function HRRaceMasterPage() {
   };
 
   const handleOpenRotationBoard = () => {
-    // Falls sich Setup geändert hat und noch keine passenden Karten existieren, frisch erzeugen
-    const generated = generateQualiSessionCards(
-      groups,
-      activeKarts,
-      eventMode,
-      hasWarmup,
-      qualiTurns
-    );
-    setSessionCards(generated);
-    setActiveCardIndex(0);
+    if (sessionCards.length === 0) {
+      const generated = generateQualiSessionCards(
+        groups,
+        activeKarts,
+        eventMode,
+        hasWarmup,
+        qualiTurns
+      );
+      setSessionCards(generated);
+      setActiveCardIndex(0);
+    }
     setActiveTab('rotation');
   };
 
-  const handleUpdateCard = (updated: SessionCard) => {
+  const handleUpdateCard = useCallback((updated: SessionCard) => {
     setSessionCards((prev) =>
       prev.map((c) => (c.id === updated.id ? updated : c))
     );
-  };
+  }, []);
 
-  const handleUpdateFinalCard = (updated: SessionCard) => {
+  const handleUpdateFinalCard = useCallback((updated: SessionCard) => {
     setFinalCards((prev) =>
       prev.map((c) => (c.id === updated.id ? updated : c))
     );
-  };
+  }, []);
 
   const handleGoToFinals = () => {
     const generatedFinals = buildFinalCardsFromStandings(
       standings,
       maxTrackKarts,
-      activeKarts
+      activeKarts,
+      finalCards
     );
     setFinalCards(generatedFinals);
+    setActiveFinalIndex(0); // Startet mit der langsamsten Gruppe (z.B. Gruppe B)
     setActiveTab('finals');
   };
 
-  const currentCard = sessionCards[activeCardIndex];
+  const currentQualiCard = sessionCards[activeCardIndex];
+  const currentFinalCard = finalCards[activeFinalIndex];
+
+  // KaRaS Bridge bedient automatisch entweder die aktive Quali-Karte ODER die aktive Final-Karte!
+  const bridgeTargetCard =
+    activeTab === 'finals' ? currentFinalCard : currentQualiCard;
+  const bridgeUpdateHandler =
+    activeTab === 'finals' ? handleUpdateFinalCard : handleUpdateCard;
 
   const {
     bridgeOnline,
@@ -184,8 +211,8 @@ export default function HRRaceMasterPage() {
     triggerStop,
     simulateTransponderPass,
   } = useKarasBridge({
-    activeCard: currentCard,
-    onUpdateCard: handleUpdateCard,
+    activeCard: bridgeTargetCard,
+    onUpdateCard: bridgeUpdateHandler,
   });
 
   return (
@@ -249,6 +276,10 @@ export default function HRRaceMasterPage() {
               setPrintMode('rolling_plan');
               setActiveTab('print');
             }}
+            onPrintQualiTotal={() => {
+              setPrintMode('quali_total');
+              setActiveTab('print');
+            }}
           />
         )}
 
@@ -279,13 +310,26 @@ export default function HRRaceMasterPage() {
             darkMode={darkMode}
             standings={standings}
             finalCards={finalCards}
+            activeFinalIndex={activeFinalIndex}
+            setActiveFinalIndex={setActiveFinalIndex}
             activeKarts={activeKarts}
             onUpdateFinalCard={handleUpdateFinalCard}
             onRegenerateFinals={handleGoToFinals}
-            onOpenPrint={() => {
-              setPrintMode('final_results');
+            onPrintSingleFinal={(idx) => {
+              setActiveFinalIndex(idx);
+              setPrintMode('final_group');
               setActiveTab('print');
             }}
+            onPrintOverallFinal={() => {
+              setPrintMode('final_overall');
+              setActiveTab('print');
+            }}
+            bridgeOnline={bridgeOnline}
+            autoPoll={autoPoll}
+            setAutoPoll={setAutoPoll}
+            onTriggerStart={triggerStart}
+            onTriggerStop={triggerStop}
+            onSimulatePass={simulateTransponderPass}
           />
         )}
 
@@ -296,10 +340,12 @@ export default function HRRaceMasterPage() {
             printMode={printMode}
             setPrintMode={setPrintMode}
             groups={groups}
-            currentCard={currentCard}
+            currentCard={currentQualiCard}
             allCards={sessionCards}
             standings={standings}
             finalCards={finalCards}
+            selectedFinalIndex={activeFinalIndex}
+            setSelectedFinalIndex={setActiveFinalIndex}
             qualiTurns={qualiTurns}
           />
         )}

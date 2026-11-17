@@ -1,5 +1,5 @@
 // src/components/StepSetup.tsx
-import React from 'react';
+import React, { useState } from 'react';
 import {
   CheckCircle2,
   XCircle,
@@ -10,6 +10,10 @@ import {
   Minus,
   Plus,
   Grid,
+  Smartphone,
+  Copy,
+  Check,
+  ExternalLink,
 } from 'lucide-react';
 import { EventMode, FleetType, KartItem, RaceGroup } from '../types/kart';
 
@@ -34,6 +38,8 @@ interface StepSetupProps {
   groups: RaceGroup[];
   onInitializeSessions: () => void;
   onOpenRotationBoard: () => void;
+  mobileUrl?: string;
+  mainUrl?: string;
 }
 
 export default function StepSetup({
@@ -57,7 +63,11 @@ export default function StepSetup({
   groups,
   onInitializeSessions,
   onOpenRotationBoard,
+  mobileUrl = 'http://localhost:3000/mobile',
+  mainUrl = 'http://localhost:3000',
 }: StepSetupProps) {
+  const [copied, setCopied] = useState<boolean>(false);
+
   const cardBg = darkMode
     ? 'bg-[#1A1A1A] border-[#272727] text-[#FAFAFA]'
     : 'bg-white border-[#D3D3D3] text-[#1A1A1A]';
@@ -71,6 +81,14 @@ export default function StepSetup({
   const handleMaxKartsChange = (val: number) => {
     const clamped = Math.max(1, Math.min(25, val || 1));
     setMaxTrackKarts(clamped);
+  };
+
+  const handleCopyMobileUrl = () => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(mobileUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   return (
@@ -181,7 +199,7 @@ export default function StepSetup({
                     min={1}
                     max={25}
                     value={maxTrackKarts}
-                    onChange={(e) => handleMaxKartsChange( parseInt(e.target.value, 10) )}
+                    onChange={(e) => handleMaxKartsChange(parseInt(e.target.value, 10))}
                     className={`w-16 px-2 py-1.5 rounded-lg border text-center font-mono font-black text-base focus:outline-none focus:border-amber-500 ${subBg}`}
                   />
                   <button
@@ -308,19 +326,72 @@ export default function StepSetup({
         </div>
       </div>
 
-      {/* 3. Fahrerliste & Automatische Gruppen-Vorschau */}
+      {/* 3. Fahrerliste + Smartphone WLAN Live-Check-In */}
       <div className={`p-6 rounded-2xl border shadow-sm ${cardBg}`}>
+        {/* Smartphone WLAN Info-Banner */}
+        <div
+          className={`mb-5 p-4 rounded-xl border flex flex-wrap items-center justify-between gap-4 ${subBg}`}
+        >
+          <div className="flex items-center space-x-3">
+            <div className="p-2.5 rounded-xl bg-amber-500 text-black">
+              <Smartphone className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs font-black uppercase text-amber-500">
+                  📱 Smartphone Fahrer-Erfassung (WLAN Live-Sync)
+                </span>
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">
+                  ● Automatische Übertragung aktiv
+                </span>
+              </div>
+              <p className="text-xs opacity-80 mt-0.5">
+                Öffne am Smartphone im selben WLAN:{' '}
+                <strong className="font-mono text-amber-400">{mobileUrl}</strong>{' '}
+                (Hauptseite für Tablets: <span className="font-mono">{mainUrl}</span>)
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={handleCopyMobileUrl}
+              className="px-3 py-2 rounded-lg text-xs font-bold bg-amber-500/15 border border-amber-500/40 text-amber-400 flex items-center hover:bg-amber-500/25 transition"
+            >
+              {copied ? (
+                <>
+                  <Check className="w-3.5 h-3.5 mr-1.5" /> Link kopiert
+                </>
+              ) : (
+                <>
+                  <Copy className="w-3.5 h-3.5 mr-1.5" /> Smartphone-Link kopieren
+                </>
+              )}
+            </button>
+            <a
+              href="/mobile"
+              target="_blank"
+              rel="noreferrer"
+              className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center hover:border-amber-500 transition ${subBg}`}
+            >
+              <ExternalLink className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
+              Vorschau (/mobile)
+            </a>
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             <h2 className="text-lg font-black mb-2 flex items-center">
               <Users className="w-5 h-5 mr-2 text-amber-500" />
-              3. Fahrer eintragen (1 Name pro Zeile)
+              3. Fahrer eintragen (PC oder live per Smartphone)
             </h2>
             <textarea
               rows={8}
               value={rawDriversText}
               onChange={(e) => setRawDriversText(e.target.value)}
-              placeholder="Fahrernamen untereinander einfügen..."
+              placeholder="Fahrernamen untereinander einfügen oder am Smartphone unter /mobile eingeben..."
               className={`w-full p-3 rounded-xl border font-mono text-sm ${subBg}`}
             />
           </div>
@@ -328,7 +399,8 @@ export default function StepSetup({
           <div className="flex flex-col justify-between">
             <div>
               <h3 className="text-base font-black mb-2">
-                Automatische Gruppeneinteilung ({groups.length} Gruppen • Max. {Math.min(maxTrackKarts, activeKartsCount)} pro Gruppe)
+                Automatische Gruppeneinteilung ({groups.length} Gruppen • Max.{' '}
+                {Math.min(maxTrackKarts, activeKartsCount)} pro Gruppe)
               </h3>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
                 {groups.map((g) => (

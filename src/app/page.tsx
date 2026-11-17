@@ -1,7 +1,7 @@
 // src/app/page.tsx
 'use client';
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import {
   Driver,
   EventMode,
@@ -61,12 +61,91 @@ export default function HRRaceMasterPage() {
   const [karts, setKarts] = useState<KartItem[]>(ADULT_FLEET);
   const [rawDriversText, setRawDriversText] = useState<string>(DEFAULT_DRIVERS);
 
+  // Netzwerk-URLs für Smartphone & Tablets
+  const [mobileUrl, setMobileUrl] = useState<string>('http://localhost:3000/mobile');
+  const [mainUrl, setMainUrl] = useState<string>('http://localhost:3000');
+  const lastServerUpdatedAt = useRef<number>(0);
+  const isTypingLocally = useRef<boolean>(false);
+
   // Lauf-Karten (Warm-up / Quali) & Final-Karten (Langsamste Gruppe zuerst!)
   const [sessionCards, setSessionCards] = useState<SessionCard[]>([]);
   const [activeCardIndex, setActiveCardIndex] = useState<number>(0);
   const [finalCards, setFinalCards] = useState<SessionCard[]>([]);
   const [activeFinalIndex, setActiveFinalIndex] = useState<number>(0);
   const [printMode, setPrintMode] = useState<PrintViewMode>('quali_total');
+
+  // Live-Synchronisation mit dem Smartphone (/api/event)
+  useEffect(() => {
+    const pollSmartphoneDrivers = async () => {
+      if (isTypingLocally.current) return;
+      try {
+        const res = await fetch('/api/event', { cache: 'no-store' });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.mobileUrl) setMobileUrl(data.mobileUrl);
+        if (data.mainUrl) setMainUrl(data.mainUrl);
+
+        if (
+          typeof data.updatedAt === 'number' &&
+          data.updatedAt > lastServerUpdatedAt.current &&
+          Array.isArray(data.drivers)
+        ) {
+          lastServerUpdatedAt.current = data.updatedAt;
+          setRawDriversText(data.drivers.join('\n'));
+          if (data.eventName) setEventName(data.eventName);
+        }
+      } catch {
+        // Ignorieren falls API kurzzeitig nicht erreichbar
+      }
+    };
+
+    pollSmartphoneDrivers();
+    const interval = setInterval(pollSmartphoneDrivers, 1500);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Wenn am PC im Textfeld getippt wird -> auch an den Server (/api/event) senden, damit das Smartphone synchron bleibt
+  const handleLocalDriversChange = (newText: string) => {
+    isTypingLocally.current = true;
+    setRawDriversText(newText);
+
+    const lines = newText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter(Boolean);
+
+    fetch('/api/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'set_drivers',
+        drivers: lines,
+        eventName,
+      }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        if (data?.updatedAt) lastServerUpdatedAt.current = data.updatedAt;
+      })
+      .catch(() => {})
+      .finally(() => {
+        setTimeout(() => {
+          isTypingLocally.current = false;
+        }, 600);
+      });
+  };
+
+  const handleLocalEventNameChange = (newName: string) => {
+    setEventName(newName);
+    fetch('/api/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'set_event_name',
+        eventName: newName,
+      }),
+    }).catch(() => {});
+  };
 
   const activeKarts = useMemo(() => karts.filter((k) => k.active), [karts]);
 
@@ -117,7 +196,11 @@ export default function HRRaceMasterPage() {
 
   // Final-Karten automatisch bereitstellen/synchronisieren, sobald man den Finale-Tab öffnet
   useEffect(() => {
-    if ((activeTab === 'finals' || activeTab === 'print') && standings.length > 0 && finalCards.length === 0) {
+    if (
+      (activeTab === 'finals' || activeTab === 'print') &&
+      standings.length > 0 &&
+      finalCards.length === 0
+    ) {
       const generatedFinals = buildFinalCardsFromStandings(
         standings,
         maxTrackKarts,
@@ -156,17 +239,15 @@ export default function HRRaceMasterPage() {
   };
 
   const handleOpenRotationBoard = () => {
-    if (sessionCards.length === 0) {
-      const generated = generateQualiSessionCards(
-        groups,
-        activeKarts,
-        eventMode,
-        hasWarmup,
-        qualiTurns
-      );
-      setSessionCards(generated);
-      setActiveCardIndex(0);
-    }
+    const generated = generateQualiSessionCards(
+      groups,
+      activeKarts,
+      eventMode,
+      hasWarmup,
+      qualiTurns
+    );
+    setSessionCards(generated);
+    setActiveCardIndex(0);
     setActiveTab('rotation');
   };
 
@@ -197,7 +278,6 @@ export default function HRRaceMasterPage() {
   const currentQualiCard = sessionCards[activeCardIndex];
   const currentFinalCard = finalCards[activeFinalIndex];
 
-  // KaRaS Bridge bedient automatisch entweder die aktive Quali-Karte ODER die aktive Final-Karte!
   const bridgeTargetCard =
     activeTab === 'finals' ? currentFinalCard : currentQualiCard;
   const bridgeUpdateHandler =
@@ -238,7 +318,7 @@ export default function HRRaceMasterPage() {
           <StepSetup
             darkMode={darkMode}
             eventName={eventName}
-            setEventName={setEventName}
+            setEventName={handleLocalEventNameChange}
             eventMode={eventMode}
             setEventMode={setEventMode}
             hasWarmup={hasWarmup}
@@ -252,10 +332,12 @@ export default function HRRaceMasterPage() {
             karts={karts}
             onToggleKart={handleToggleKart}
             rawDriversText={rawDriversText}
-            setRawDriversText={setRawDriversText}
+            setRawDriversText={handleLocalDriversChange}
             groups={groups}
             onInitializeSessions={handleInitializeSessions}
             onOpenRotationBoard={handleOpenRotationBoard}
+            mobileUrl={mobileUrl}
+            mainUrl={mainUrl}
           />
         )}
 

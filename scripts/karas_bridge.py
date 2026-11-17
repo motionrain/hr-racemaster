@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """
 HR-RaceMaster – KaRaS Live Bridge v31 (Port 8080)
-- Liest Kartlist.Log & alle Ersatztransponder (6-, 6+, 1-, 7-, 8., 11-, 11., 13., 04, Black 8)
+Pfad: /home/kart/Schreibtisch/hr-racemaster/scripts/karas_bridge.py
+- Orientiert sich an Kartlist.Log / karts.dat (inkl. aller Ersatztransponder wie 6-, 6+, 1-, 7-, 8., 11-, 11., 13., 04, Black 8)
 - Meldet jedes Kart sofort ab der 1. Transponder-Erfassung als active=True an das Live-Board
 """
 
@@ -412,7 +413,7 @@ def watcher_loop(karas_dir: str):
                         file_pos += chunk_len
 
             time.sleep(0.05)
-        except Exception as e:
+        except Exception:
             time.sleep(0.1)
 
 

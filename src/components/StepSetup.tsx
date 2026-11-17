@@ -14,8 +14,10 @@ import {
   Copy,
   Check,
   ExternalLink,
+  QrCode,
 } from 'lucide-react';
 import { EventMode, FleetType, KartItem, RaceGroup } from '../types/kart';
+import { QrCodeSvg } from './QrCodeModal';
 
 interface StepSetupProps {
   darkMode: boolean;
@@ -36,8 +38,10 @@ interface StepSetupProps {
   rawDriversText: string;
   setRawDriversText: (v: string) => void;
   groups: RaceGroup[];
+  onAssignGroupKarts: (groupName: string, karts: string[]) => void;
   onInitializeSessions: () => void;
   onOpenRotationBoard: () => void;
+  onOpenQrModal: () => void;
   mobileUrl?: string;
   mainUrl?: string;
 }
@@ -61,8 +65,10 @@ export default function StepSetup({
   rawDriversText,
   setRawDriversText,
   groups,
+  onAssignGroupKarts,
   onInitializeSessions,
   onOpenRotationBoard,
+  onOpenQrModal,
   mobileUrl = 'http://localhost:3000/mobile',
   mainUrl = 'http://localhost:3000',
 }: StepSetupProps) {
@@ -76,7 +82,8 @@ export default function StepSetup({
     ? 'bg-[#272727] border-[#404040] text-[#FAFAFA]'
     : 'bg-[#F5F5F5] border-[#D3D3D3] text-[#1A1A1A]';
 
-  const activeKartsCount = karts.filter((k) => k.active).length;
+  const activeKarts = karts.filter((k) => k.active);
+  const activeKartsCount = activeKarts.length;
 
   const handleMaxKartsChange = (val: number) => {
     const clamped = Math.max(1, Math.min(25, val || 1));
@@ -89,6 +96,21 @@ export default function StepSetup({
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleToggleGroupKart = (group: RaceGroup, kartName: string) => {
+    const current = [...group.assignedKarts.slice(0, group.drivers.length)];
+    const idx = current.indexOf(kartName);
+    if (idx >= 0) {
+      if (current.length <= 1) return;
+      current.splice(idx, 1);
+    } else {
+      if (current.length >= group.drivers.length) {
+        current.shift();
+      }
+      current.push(kartName);
+    }
+    onAssignGroupKarts(group.name, current);
   };
 
   return (
@@ -137,12 +159,11 @@ export default function StepSetup({
             >
               <div className="font-black text-base mb-1">🔄 2. KartRolling</div>
               <p className="text-xs opacity-75">
-                Jeder fährt mit jedem Kart! Faire Gesamtzeit-Wertung über alle Läufe + Finalläufe.
+                Jeder fährt mit jedem Kart der Gruppe! Faire Gesamtzeit-Wertung + Finalläufe.
               </p>
             </button>
           </div>
 
-          {/* Optionen */}
           <div className="space-y-4 pt-4 border-t border-[#535353]/30 text-sm">
             <label className="flex items-center justify-between cursor-pointer">
               <span className="font-bold">Warm-up vor dem Qualifying fahren?</span>
@@ -174,7 +195,6 @@ export default function StepSetup({
               </div>
             )}
 
-            {/* Frei einstellbare Max. Streckenbelegung pro Gruppe */}
             <div className="pt-2 border-t border-[#535353]/20">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <div>
@@ -184,13 +204,11 @@ export default function StepSetup({
                   </span>
                 </div>
 
-                {/* Numerische Eingabe mit +/- Buttons */}
                 <div className="flex items-center space-x-1.5">
                   <button
                     type="button"
                     onClick={() => handleMaxKartsChange(maxTrackKarts - 1)}
                     className={`p-2 rounded-lg border hover:border-amber-500 transition ${subBg}`}
-                    title="1 Kart weniger"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
@@ -206,14 +224,12 @@ export default function StepSetup({
                     type="button"
                     onClick={() => handleMaxKartsChange(maxTrackKarts + 1)}
                     className={`p-2 rounded-lg border hover:border-amber-500 transition ${subBg}`}
-                    title="1 Kart mehr"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
                 </div>
               </div>
 
-              {/* Schnellwahl-Buttons */}
               <div className="flex flex-wrap items-center gap-1.5 mt-2">
                 <span className="text-xs opacity-65 mr-1">Schnellwahl:</span>
                 {[6, 7, 8, 9, 10, 12].map((preset) => (
@@ -277,7 +293,7 @@ export default function StepSetup({
           </div>
 
           <p className="text-xs opacity-70 mb-3">
-            Klicke auf ein Kart, um es als <strong>Defekt / Gesperrt</strong> zu markieren. Es wird automatisch in allen Gruppen übersprungen:
+            Klicke auf ein Kart, um es als <strong>Defekt / Gesperrt</strong> zu markieren:
           </p>
 
           <div className="grid grid-cols-4 sm:grid-cols-7 gap-2 mb-4">
@@ -326,34 +342,50 @@ export default function StepSetup({
         </div>
       </div>
 
-      {/* 3. Fahrerliste + Smartphone WLAN Live-Check-In */}
+      {/* 3. Fahrerliste + Smartphone WLAN Live-Check-In MIT DIREKTEM QR-CODE */}
       <div className={`p-6 rounded-2xl border shadow-sm ${cardBg}`}>
-        {/* Smartphone WLAN Info-Banner */}
         <div
           className={`mb-5 p-4 rounded-xl border flex flex-wrap items-center justify-between gap-4 ${subBg}`}
         >
-          <div className="flex items-center space-x-3">
-            <div className="p-2.5 rounded-xl bg-amber-500 text-black">
-              <Smartphone className="w-5 h-5" />
+          <div className="flex items-center space-x-4">
+            {/* Direkt sichtbarer QR-Code (Klick vergrößert) */}
+            <div
+              onClick={onOpenQrModal}
+              className="cursor-pointer shrink-0 hover:scale-105 transition"
+              title="Klicken zum Vergrößern"
+            >
+              <QrCodeSvg url={mobileUrl} sizePx={96} />
             </div>
+
             <div>
-              <div className="flex items-center space-x-2">
-                <span className="text-xs font-black uppercase text-amber-500">
-                  📱 Smartphone Fahrer-Erfassung (WLAN Live-Sync)
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase text-amber-500 flex items-center">
+                  <Smartphone className="w-4 h-4 mr-1" />
+                  📱 Smartphone Fahrer-Erfassung (QR-Code scannen)
                 </span>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">
-                  ● Automatische Übertragung aktiv
+                  ● WLAN Live-Sync aktiv
                 </span>
               </div>
-              <p className="text-xs opacity-80 mt-0.5">
-                Öffne am Smartphone im selben WLAN:{' '}
-                <strong className="font-mono text-amber-400">{mobileUrl}</strong>{' '}
-                (Hauptseite für Tablets: <span className="font-mono">{mainUrl}</span>)
+              <p className="text-xs opacity-80 mt-1">
+                Scanne den QR-Code mit der Smartphone-Kamera oder öffne im selben WLAN:{' '}
+                <strong className="font-mono text-amber-400">{mobileUrl}</strong>
+              </p>
+              <p className="text-[11px] opacity-60 mt-0.5">
+                Hauptansicht für TV/Tablets: <span className="font-mono">{mainUrl}</span>
               </p>
             </div>
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={onOpenQrModal}
+              className="px-3.5 py-2 rounded-lg text-xs font-black bg-rose-600 hover:bg-rose-500 text-white flex items-center shadow transition"
+            >
+              <QrCode className="w-4 h-4 mr-1.5" />
+              QR-Code groß anzeigen
+            </button>
             <button
               type="button"
               onClick={handleCopyMobileUrl}
@@ -361,11 +393,11 @@ export default function StepSetup({
             >
               {copied ? (
                 <>
-                  <Check className="w-3.5 h-3.5 mr-1.5" /> Link kopiert
+                  <Check className="w-3.5 h-3.5 mr-1.5" /> Kopiert
                 </>
               ) : (
                 <>
-                  <Copy className="w-3.5 h-3.5 mr-1.5" /> Smartphone-Link kopieren
+                  <Copy className="w-3.5 h-3.5 mr-1.5" /> Link kopieren
                 </>
               )}
             </button>
@@ -376,7 +408,7 @@ export default function StepSetup({
               className={`px-3 py-2 rounded-lg text-xs font-bold border flex items-center hover:border-amber-500 transition ${subBg}`}
             >
               <ExternalLink className="w-3.5 h-3.5 mr-1.5 text-amber-500" />
-              Vorschau (/mobile)
+              /mobile öffnen
             </a>
           </div>
         </div>
@@ -388,10 +420,10 @@ export default function StepSetup({
               3. Fahrer eintragen (PC oder live per Smartphone)
             </h2>
             <textarea
-              rows={8}
+              rows={9}
               value={rawDriversText}
               onChange={(e) => setRawDriversText(e.target.value)}
-              placeholder="Fahrernamen untereinander einfügen oder am Smartphone unter /mobile eingeben..."
+              placeholder="Fahrernamen untereinander einfügen oder per Smartphone scannen..."
               className={`w-full p-3 rounded-xl border font-mono text-sm ${subBg}`}
             />
           </div>
@@ -399,20 +431,52 @@ export default function StepSetup({
           <div className="flex flex-col justify-between">
             <div>
               <h3 className="text-base font-black mb-2">
-                Automatische Gruppeneinteilung ({groups.length} Gruppen • Max.{' '}
-                {Math.min(maxTrackKarts, activeKartsCount)} pro Gruppe)
+                Gruppeneinteilung & Manuelle Gruppen-Karts ({groups.length} Gruppen)
               </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-52 overflow-y-auto pr-1">
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
                 {groups.map((g) => (
                   <div key={g.id} className={`p-3 rounded-xl border ${subBg}`}>
-                    <div className="font-black text-xs text-amber-500 mb-1 flex justify-between">
-                      <span>{g.name}</span>
-                      <span>{g.drivers.length} Fahrer</span>
+                    <div className="font-black text-xs text-amber-500 mb-1.5 flex justify-between items-center">
+                      <span>
+                        {g.name} ({g.drivers.length} Fahrer)
+                      </span>
+                      <span className="font-mono text-[11px] text-emerald-400">
+                        Karts: {g.assignedKarts.slice(0, g.drivers.length).join(', ')}
+                      </span>
                     </div>
-                    <div className="text-xs space-y-0.5 opacity-85">
-                      {g.drivers.map((d) => (
-                        <div key={d.id}>
-                          #{d.id} {d.name}
+
+                    {/* Manuelle Kart-Auswahl für diese Gruppe direkt im Setup */}
+                    <div className="flex flex-wrap gap-1 mb-2 pb-2 border-b border-[#535353]/30">
+                      {activeKarts.map((k) => {
+                        const isAssigned = g.assignedKarts
+                          .slice(0, g.drivers.length)
+                          .includes(k.name);
+                        return (
+                          <button
+                            key={k.id}
+                            type="button"
+                            onClick={() => handleToggleGroupKart(g, k.name)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono font-black border transition ${
+                              isAssigned
+                                ? 'bg-amber-500 text-black border-amber-500'
+                                : 'opacity-45 hover:opacity-100 border-[#535353]'
+                            }`}
+                            title="Klicken um Kart dieser Gruppe zuzuweisen"
+                          >
+                            {k.name}
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-1 text-xs opacity-90">
+                      {g.drivers.map((d, dIdx) => (
+                        <div key={d.id} className="truncate">
+                          <span className="font-mono opacity-60 mr-1">#{d.id}</span>
+                          <span className="font-bold">{d.name}</span>{' '}
+                          <span className="text-amber-400 font-mono text-[10px]">
+                            ({g.assignedKarts[dIdx] || '–'})
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -428,7 +492,7 @@ export default function StepSetup({
                 className={`py-3.5 px-4 rounded-xl border font-black text-sm flex items-center justify-center transition hover:border-amber-500 ${subBg}`}
               >
                 <Grid className="w-4 h-4 mr-2 text-amber-500" />
-                Gesamtansicht / Live-Screen
+                Gruppen- & Rotations-Matrix
               </button>
 
               <button

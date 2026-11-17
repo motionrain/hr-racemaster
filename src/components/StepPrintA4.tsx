@@ -44,11 +44,10 @@ export default function StepPrintA4({
   const [selectedDriverId, setSelectedDriverId] = useState<number>(
     standings[0]?.driverId || 1
   );
-  // Layout-Wahl für Quali-Gesamtwertung: 'both' | 'overall_matrix' | 'group_matrix'
   const [qualiMatrixMode, setQualiMatrixMode] = useState<
     'overall_matrix' | 'group_matrix' | 'both'
   >('both');
-  const [showKartInQualiTotal, setShowKartInQualiTotal] = useState<boolean>(true);
+  const [hideEmptyKartsOnPrint, setHideEmptyKartsOnPrint] = useState<boolean>(true);
 
   const selectedStanding =
     standings.find((s) => s.driverId === selectedDriverId) || standings[0];
@@ -57,12 +56,26 @@ export default function StepPrintA4({
     ? 'bg-[#272727] border-[#404040] text-[#FAFAFA]'
     : 'bg-[#E6E6E6] border-[#D3D3D3] text-[#1A1A1A]';
 
-  const combinedFinals = calculateCombinedFinalStandings(finalCards, 'tiered');
+  const combinedFinals = calculateCombinedFinalStandings(
+    finalCards,
+    'tiered',
+    hideEmptyKartsOnPrint
+  );
   const singleFinalCard = finalCards[selectedFinalIndex] || finalCards[0];
+
+  const filteredStandings =
+    hideEmptyKartsOnPrint && standings.some((s) => s.hasAnyActivity)
+      ? standings.filter((s) => s.hasAnyActivity)
+      : standings;
 
   return (
     <div className="space-y-6">
-      {/* Auswahlleiste (wird beim Drucken ausgeblendet) */}
+      <style>{`
+        @media print {
+          body { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+        }
+      `}</style>
+
       <div
         className={`p-4 rounded-2xl border flex flex-wrap items-center justify-between gap-3 print:hidden ${
           darkMode
@@ -72,27 +85,11 @@ export default function StepPrintA4({
       >
         <div className="flex flex-wrap gap-2">
           {[
-            {
-              id: 'quali_total',
-              label: '1. Quali-Gesamtwertung (Matrix)',
-              icon: Table,
-            },
-            {
-              id: 'rolling_plan',
-              label: '2. Rotationsplan (Vorab-Aushang)',
-              icon: Grid,
-            },
+            { id: 'quali_total', label: '1. Quali-Gesamtwertung', icon: Table },
+            { id: 'rolling_plan', label: '2. Rotationsplan (Boxengasse)', icon: Grid },
             { id: 'current_card', label: '3. Aktueller Lauf', icon: FileText },
-            {
-              id: 'final_group',
-              label: '4. Finale Einzelgruppe (z.B. Gr. B)',
-              icon: Flag,
-            },
-            {
-              id: 'final_overall',
-              label: '5. Finale Gesamtwertung (Alle)',
-              icon: Trophy,
-            },
+            { id: 'final_group', label: '4. Finale Einzelgruppe', icon: Flag },
+            { id: 'final_overall', label: '5. Finale Gesamtwertung', icon: Trophy },
             { id: 'certificate', label: '6. Sieger-Urkunde (A4)', icon: Award },
           ].map((btn) => {
             const Icon = btn.icon;
@@ -102,9 +99,7 @@ export default function StepPrintA4({
                 type="button"
                 onClick={() => setPrintMode(btn.id as PrintViewMode)}
                 className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center transition ${
-                  printMode === btn.id
-                    ? 'bg-amber-500 text-black shadow'
-                    : subBg
+                  printMode === btn.id ? 'bg-amber-500 text-black shadow' : subBg
                 }`}
               >
                 <Icon className="w-4 h-4 mr-1.5" />
@@ -114,45 +109,44 @@ export default function StepPrintA4({
           })}
         </div>
 
-        {/* Kontext-Optionen je nach Druckansicht */}
         <div className="flex flex-wrap items-center gap-3">
-          {printMode === 'quali_total' && (
-            <>
-              <div className="flex items-center space-x-1">
-                {[
-                  { id: 'both', label: 'Gesamt + Gruppen-Matrix' },
-                  { id: 'group_matrix', label: 'Nur Gruppen-Matrix (nach Zeit)' },
-                  { id: 'overall_matrix', label: 'Nur Gesamt-Matrix (#1–#N)' },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() =>
-                      setQualiMatrixMode(
-                        opt.id as 'overall_matrix' | 'group_matrix' | 'both'
-                      )
-                    }
-                    className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border ${
-                      qualiMatrixMode === opt.id
-                        ? 'bg-amber-500 text-black border-amber-500'
-                        : subBg
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+          {printMode !== 'rolling_plan' && printMode !== 'certificate' && (
+            <label className="flex items-center space-x-2 text-xs font-black cursor-pointer px-3 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-400">
+              <input
+                type="checkbox"
+                checked={hideEmptyKartsOnPrint}
+                onChange={(e) => setHideEmptyKartsOnPrint(e.target.checked)}
+                className="w-4 h-4 accent-emerald-500 rounded"
+              />
+              <span>Nur aktive Transponder drucken (Leere Karts ausblenden)</span>
+            </label>
+          )}
 
-              <label className="flex items-center space-x-1.5 text-xs font-bold cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={showKartInQualiTotal}
-                  onChange={(e) => setShowKartInQualiTotal(e.target.checked)}
-                  className="w-4 h-4 accent-amber-500 rounded"
-                />
-                <span>Kart-Nr. je Lauf anzeigen</span>
-              </label>
-            </>
+          {printMode === 'quali_total' && (
+            <div className="flex items-center space-x-1">
+              {[
+                { id: 'both', label: 'Beide Tabellen' },
+                { id: 'group_matrix', label: 'Nur Gruppen' },
+                { id: 'overall_matrix', label: 'Nur Gesamt (#1–#N)' },
+              ].map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() =>
+                    setQualiMatrixMode(
+                      opt.id as 'overall_matrix' | 'group_matrix' | 'both'
+                    )
+                  }
+                  className={`px-2.5 py-1.5 rounded-lg text-[11px] font-bold border ${
+                    qualiMatrixMode === opt.id
+                      ? 'bg-amber-500 text-black border-amber-500'
+                      : subBg
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           )}
 
           {printMode === 'final_group' && finalCards.length > 0 && (
@@ -194,129 +188,91 @@ export default function StepPrintA4({
         </div>
       </div>
 
-      {/* DIN-A4 DRUCKBLATT */}
+      {/* DIN-A4 DRUCKBLATT (GROSSE SCHRIFT & DEUTLICHE KART-BOXEN) */}
       <div className="bg-white text-black p-6 sm:p-8 rounded-2xl shadow-xl max-w-[210mm] mx-auto print:shadow-none print:p-0 print:max-w-none">
-        {/* Motorsport Header */}
         <div className="border-b-4 border-black pb-3 mb-5 flex justify-between items-end">
           <div>
-            <div className="text-[11px] font-black uppercase tracking-widest text-neutral-500">
+            <div className="text-xs font-black uppercase tracking-widest text-neutral-600">
               KARTBAHN RHEINFELDEN • HR-RACEMASTER TIMING
             </div>
-            <h1 className="text-2xl sm:text-3xl font-black uppercase tracking-tight mt-0.5">
+            <h1 className="text-3xl font-black uppercase tracking-tight mt-0.5">
               {eventName}
             </h1>
           </div>
-          <div className="text-right text-xs font-mono text-neutral-600">
+          <div className="text-right text-xs font-mono font-bold text-neutral-700">
             <div>Datum: {new Date().toLocaleDateString('de-DE')}</div>
             <div>System: HR-RaceMaster Live</div>
           </div>
         </div>
 
-        {/* =====================================================================
-            1. QUALIFYING GESAMTWERTUNG (IM ÜBERSICHTLICHEN GRUPPEN-MATRIX-DESIGN)
-           ===================================================================== */}
+        {/* 1. QUALIFYING GESAMTWERTUNG */}
         {printMode === 'quali_total' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-black uppercase">
-                Offizieller Wertungsaushang – Qualifying Gesamtauswertung
-              </h2>
-              <p className="text-xs text-neutral-600">
-                Fahrer-Positionen sortiert nach der schnellsten Gesamtzeit über alle {qualiTurns} Qualifying-Läufe.
-              </p>
-            </div>
-
-            {/* TEIL A: GRUPPEN-MATRIX (SORTIERT NACH SCHNELLSTER GESAMTZEIT) */}
-            {(qualiMatrixMode === 'group_matrix' ||
-              qualiMatrixMode === 'both') && (
-              <div className="space-y-4">
+            {(qualiMatrixMode === 'group_matrix' || qualiMatrixMode === 'both') && (
+              <div className="space-y-5">
                 {groups.map((group) => {
-                  // Filtere & sortiere die Fahrer dieser Gruppe nach ihrer Gesamtzeit-Position (st.rank)
-                  const groupStandings = standings
+                  const groupStandings = filteredStandings
                     .filter((s) => s.groupName === group.name)
                     .sort((a, b) => a.rank - b.rank);
+                  if (groupStandings.length === 0) return null;
 
                   return (
                     <div
                       key={group.id}
                       className="border-2 border-black rounded-lg overflow-hidden break-inside-avoid"
                     >
-                      <div className="bg-black text-white px-3 py-1.5 flex justify-between items-center text-xs font-black uppercase">
-                        <span>
-                          {group.name} – Sortiert nach schnellster Gesamtzeit ({groupStandings.length} Fahrer)
-                        </span>
-                        <span>
-                          {qualiTurns} Läufe • Qualifying-Auswertung
-                        </span>
+                      <div className="bg-black text-white px-4 py-2 flex justify-between items-center text-sm font-black uppercase">
+                        <span>{group.name} – Wertung ({groupStandings.length} Fahrer)</span>
+                        <span>Sortiert nach Gesamtzeit</span>
                       </div>
 
-                      <table className="w-full text-[10.5px] border-collapse">
+                      <table className="w-full text-sm border-collapse">
                         <thead>
-                          <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                            <th className="py-1.5 px-1.5 text-center w-11 border-r border-neutral-300">
-                              Pos
-                            </th>
-                            <th className="py-1.5 px-1.5 text-center w-14 border-r border-neutral-300">
-                              Gesamt
-                            </th>
-                            <th className="py-1.5 px-2 text-left border-r border-neutral-300 min-w-[120px]">
-                              Fahrer
-                            </th>
+                          <tr className="bg-neutral-200 border-b-2 border-black uppercase font-black text-xs">
+                            <th className="py-2 px-2 text-center w-14 border-r border-black">Pos</th>
+                            <th className="py-2 px-3 text-left border-r border-black">Fahrername</th>
                             {Array.from({ length: qualiTurns }, (_, t) => (
-                              <th
-                                key={t}
-                                className="py-1.5 px-1 text-center border-r border-neutral-300"
-                              >
+                              <th key={t} className="py-2 px-2 text-center border-r border-black">
                                 Lauf {t + 1}
                               </th>
                             ))}
-                            <th className="py-1.5 px-1.5 text-right border-r border-neutral-300 w-16">
-                              Beste Rd.
-                            </th>
-                            <th className="py-1.5 px-2 text-right border-r border-neutral-300 w-20 bg-neutral-200">
+                            <th className="py-2 px-2 text-right border-r border-black w-24">Beste Rd.</th>
+                            <th className="py-2 px-2 text-right border-r border-black w-28 bg-neutral-300">
                               Gesamtzeit
                             </th>
-                            <th className="py-1.5 px-2 text-center w-24">
-                              Finale / Grid
-                            </th>
+                            <th className="py-2 px-2 text-center w-28">Finale</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-neutral-300">
+                        <tbody className="divide-y divide-black">
                           {groupStandings.map((st, idx) => (
                             <tr key={st.driverId}>
-                              <td className="py-1.5 px-1.5 text-center font-black border-r border-neutral-300 bg-neutral-50">
+                              <td className="py-2 px-2 text-center font-black text-base border-r border-black bg-neutral-100">
                                 P{idx + 1}
                               </td>
-                              <td className="py-1.5 px-1.5 text-center font-mono font-bold border-r border-neutral-300">
-                                #{st.rank}
-                              </td>
-                              <td className="py-1.5 px-2 font-bold border-r border-neutral-300">
+                              <td className="py-2 px-3 font-black text-lg border-r border-black">
                                 {st.driverName}
                               </td>
                               {st.turnTimes.map((tVal, tIdx) => (
                                 <td
                                   key={tIdx}
-                                  className="py-1 px-1 text-center font-mono border-r border-neutral-300"
+                                  className="py-1.5 px-2 text-center font-mono border-r border-black"
                                 >
-                                  {showKartInQualiTotal && (
-                                    <div className="text-[9px] font-bold text-neutral-500 leading-tight">
-                                      {st.turnKarts[tIdx]}
-                                    </div>
-                                  )}
-                                  <div className="font-black leading-tight">
+                                  <span className="inline-block px-2.5 py-0.5 rounded border-2 border-black bg-neutral-100 font-black text-xs uppercase mb-0.5">
+                                    {st.turnKarts[tIdx]}
+                                  </span>
+                                  <div className="font-black text-sm">
                                     {tVal ? `${tVal.toFixed(3)}s` : '–'}
                                   </div>
                                 </td>
                               ))}
-                              <td className="py-1.5 px-1.5 text-right font-mono border-r border-neutral-300">
+                              <td className="py-2 px-2 text-right font-mono font-bold text-sm border-r border-black">
                                 {st.bestLap ? `${st.bestLap.toFixed(3)}s` : '–'}
                               </td>
-                              <td className="py-1.5 px-2 text-right font-mono font-black border-r border-neutral-300 bg-neutral-100">
+                              <td className="py-2 px-2 text-right font-mono font-black text-base border-r border-black bg-neutral-100">
                                 {st.totalTime ? `${st.totalTime.toFixed(3)}s` : '–'}
                               </td>
-                              <td className="py-1.5 px-1.5 text-center font-bold text-[10px]">
-                                {st.targetFinalName.replace('Finale ', '')} • P
-                                {st.targetGridPos}
+                              <td className="py-2 px-2 text-center font-black text-xs">
+                                {st.targetFinalName.replace('Finale ', '')} • P{st.targetGridPos}
                               </td>
                             </tr>
                           ))}
@@ -328,96 +284,67 @@ export default function StepPrintA4({
               </div>
             )}
 
-            {/* TEIL B: GRUPPENÜBERGREIFENDE GESAMT-MATRIX (PLATZ #1 BIS #N NACH GESAMTZEIT) */}
-            {(qualiMatrixMode === 'overall_matrix' ||
-              qualiMatrixMode === 'both') && (
+            {(qualiMatrixMode === 'overall_matrix' || qualiMatrixMode === 'both') && (
               <div className="border-2 border-black rounded-lg overflow-hidden break-inside-avoid">
-                <div className="bg-black text-white px-3 py-1.5 flex justify-between items-center text-xs font-black uppercase">
-                  <span>
-                    Gesamtrangliste über alle Gruppen (Platz #1 bis #{standings.length} nach schnellster Gesamtzeit)
-                  </span>
-                  <span>Basis für Finaleinteilung (Gr. B startet vor Gr. A)</span>
+                <div className="bg-black text-white px-4 py-2 flex justify-between items-center text-sm font-black uppercase">
+                  <span>Gesamtrangliste Qualifying (Platz #1 bis #{filteredStandings.length})</span>
+                  <span>Basis für Finaleinteilung</span>
                 </div>
 
-                <table className="w-full text-[10.5px] border-collapse">
+                <table className="w-full text-sm border-collapse">
                   <thead>
-                    <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                      <th className="py-1.5 px-1.5 text-center w-12 border-r border-neutral-300">
-                        Rang
-                      </th>
-                      <th className="py-1.5 px-2 text-left border-r border-neutral-300 min-w-[120px]">
-                        Fahrer
-                      </th>
-                      <th className="py-1.5 px-1.5 text-center w-16 border-r border-neutral-300">
-                        Vorlauf
-                      </th>
+                    <tr className="bg-neutral-200 border-b-2 border-black uppercase font-black text-xs">
+                      <th className="py-2 px-2 text-center w-14 border-r border-black">Rang</th>
+                      <th className="py-2 px-3 text-left border-r border-black">Fahrername</th>
+                      <th className="py-2 px-2 text-center w-20 border-r border-black">Gruppe</th>
                       {Array.from({ length: qualiTurns }, (_, t) => (
-                        <th
-                          key={t}
-                          className="py-1.5 px-1 text-center border-r border-neutral-300"
-                        >
+                        <th key={t} className="py-2 px-2 text-center border-r border-black">
                           Lauf {t + 1}
                         </th>
                       ))}
-                      <th className="py-1.5 px-1.5 text-right border-r border-neutral-300 w-16">
-                        Beste Rd.
-                      </th>
-                      <th className="py-1.5 px-2 text-right border-r border-neutral-300 w-20 bg-neutral-200">
+                      <th className="py-2 px-2 text-right border-r border-black w-24">Beste Rd.</th>
+                      <th className="py-2 px-2 text-right border-r border-black w-28 bg-neutral-300">
                         Gesamtzeit
                       </th>
-                      <th className="py-1.5 px-2 text-center w-28">
-                        Qualifiziert für
-                      </th>
+                      <th className="py-2 px-2 text-center w-32">Qualifiziert für</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-neutral-300">
-                    {standings.map((st, idx) => {
-                      const prevTarget =
-                        idx > 0 ? standings[idx - 1].targetFinalName : st.targetFinalName;
-                      const isNewFinalTier = idx > 0 && st.targetFinalName !== prevTarget;
-
-                      return (
-                        <tr
-                          key={st.driverId}
-                          className={isNewFinalTier ? 'border-t-2 border-black' : ''}
-                        >
-                          <td className="py-1.5 px-1.5 text-center font-mono font-black border-r border-neutral-300 bg-neutral-50">
-                            #{st.rank}
+                  <tbody className="divide-y divide-black">
+                    {filteredStandings.map((st, idx) => (
+                      <tr key={st.driverId}>
+                        <td className="py-2 px-2 text-center font-mono font-black text-base border-r border-black bg-neutral-100">
+                          #{idx + 1}
+                        </td>
+                        <td className="py-2 px-3 font-black text-lg border-r border-black">
+                          {st.driverName}
+                        </td>
+                        <td className="py-2 px-2 text-center font-bold border-r border-black">
+                          {st.groupName.replace('Gruppe ', 'Gr. ')}
+                        </td>
+                        {st.turnTimes.map((tVal, tIdx) => (
+                          <td
+                            key={tIdx}
+                            className="py-1.5 px-2 text-center font-mono border-r border-black"
+                          >
+                            <span className="inline-block px-2.5 py-0.5 rounded border-2 border-black bg-neutral-100 font-black text-xs uppercase mb-0.5">
+                              {st.turnKarts[tIdx]}
+                            </span>
+                            <div className="font-black text-sm">
+                              {tVal ? `${tVal.toFixed(3)}s` : '–'}
+                            </div>
                           </td>
-                          <td className="py-1.5 px-2 font-bold border-r border-neutral-300">
-                            {st.driverName}
-                          </td>
-                          <td className="py-1.5 px-1.5 text-center border-r border-neutral-300">
-                            {st.groupName.replace('Gruppe ', 'Gr. ')}
-                          </td>
-                          {st.turnTimes.map((tVal, tIdx) => (
-                            <td
-                              key={tIdx}
-                              className="py-1 px-1 text-center font-mono border-r border-neutral-300"
-                            >
-                              {showKartInQualiTotal && (
-                                <div className="text-[9px] font-bold text-neutral-500 leading-tight">
-                                  {st.turnKarts[tIdx]}
-                                </div>
-                              )}
-                              <div className="font-black leading-tight">
-                                {tVal ? `${tVal.toFixed(3)}s` : '–'}
-                              </div>
-                            </td>
-                          ))}
-                          <td className="py-1.5 px-1.5 text-right font-mono border-r border-neutral-300">
-                            {st.bestLap ? `${st.bestLap.toFixed(3)}s` : '–'}
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono font-black border-r border-neutral-300 bg-neutral-100">
-                            {st.totalTime ? `${st.totalTime.toFixed(3)}s` : '–'}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-black text-[10px]">
-                            {st.targetFinalName.replace('Finale ', '')} (Pole P
-                            {st.targetGridPos})
-                          </td>
-                        </tr>
-                      );
-                    })}
+                        ))}
+                        <td className="py-2 px-2 text-right font-mono font-bold text-sm border-r border-black">
+                          {st.bestLap ? `${st.bestLap.toFixed(3)}s` : '–'}
+                        </td>
+                        <td className="py-2 px-2 text-right font-mono font-black text-base border-r border-black bg-neutral-100">
+                          {st.totalTime ? `${st.totalTime.toFixed(3)}s` : '–'}
+                        </td>
+                        <td className="py-2 px-2 text-center font-black text-xs">
+                          {st.targetFinalName.replace('Finale ', '')} (Pole P{st.targetGridPos})
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -425,17 +352,15 @@ export default function StepPrintA4({
           </div>
         )}
 
-        {/* =====================================================================
-            2. VORAB-ROTATIONSPLAN (KART-MATRIX FÜR DIE BOXENGASSE)
-           ===================================================================== */}
+        {/* 2. VORAB-ROTATIONSPLAN */}
         {printMode === 'rolling_plan' && (
-          <div className="space-y-5">
+          <div className="space-y-6">
             <div>
-              <h2 className="text-lg font-black uppercase">
-                Offizieller Gruppen- & Kart-Rotationsplan (Boxengassen-Aushang)
+              <h2 className="text-xl font-black uppercase">
+                Gruppen- & Kart-Einteilung (Boxengassen-Aushang)
               </h2>
-              <p className="text-xs text-neutral-600">
-                Jeder Fahrer wechselt nach jedem Lauf in das nächste zugeteilte Kart ({groups.length} Gruppen × {qualiTurns} Läufe).
+              <p className="text-sm font-bold text-neutral-700">
+                Bitte vor jedem Lauf das zugeteilte Kart in der Tabelle ablesen!
               </p>
             </div>
 
@@ -449,48 +374,44 @@ export default function StepPrintA4({
                 )
               );
 
-              const hasRestingRow = groupQualiCards.some(
-                (c) => c && c.restingKarts && c.restingKarts.length > 0
-              );
-
               return (
                 <div
                   key={group.id}
                   className="border-2 border-black rounded-lg overflow-hidden break-inside-avoid"
                 >
-                  <div className="bg-black text-white px-3 py-1.5 flex justify-between items-center text-xs font-black uppercase">
+                  <div className="bg-black text-white px-4 py-2.5 flex justify-between items-center text-base font-black uppercase">
                     <span>
                       {group.name} ({group.drivers.length} Fahrer)
                     </span>
-                    <span>{qualiTurns} Läufe • Kart-Zuteilung</span>
+                    <span>Kart-Zuteilung für Lauf 1 bis {qualiTurns}</span>
                   </div>
 
-                  <table className="w-full text-[11px] border-collapse">
+                  <table className="w-full text-base border-collapse">
                     <thead>
-                      <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                        <th className="py-1.5 px-2 text-center w-14 border-r border-neutral-300">
-                          Start-Nr.
+                      <tr className="bg-neutral-200 border-b-2 border-black uppercase font-black text-xs">
+                        <th className="py-2.5 px-2 text-center w-16 border-r border-black">
+                          Nr.
                         </th>
-                        <th className="py-1.5 px-2.5 text-left border-r border-neutral-300">
-                          Fahrer
+                        <th className="py-2.5 px-3 text-left border-r border-black">
+                          Fahrername
                         </th>
                         {Array.from({ length: qualiTurns }, (_, t) => (
                           <th
                             key={t}
-                            className="py-1.5 px-1.5 text-center border-r border-neutral-300 last:border-r-0"
+                            className="py-2.5 px-2 text-center border-r border-black last:border-r-0"
                           >
                             Lauf {t + 1}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-neutral-300">
+                    <tbody className="divide-y divide-black">
                       {group.drivers.map((driver) => (
                         <tr key={driver.id}>
-                          <td className="py-1.5 px-2 text-center font-mono font-black border-r border-neutral-300">
-                            {driver.id}
+                          <td className="py-2.5 px-2 text-center font-mono font-black text-base border-r border-black bg-neutral-100">
+                            #{driver.id}
                           </td>
-                          <td className="py-1.5 px-2.5 font-bold border-r border-neutral-300">
+                          <td className="py-2.5 px-3 font-black text-lg border-r border-black">
                             {driver.name}
                           </td>
                           {Array.from({ length: qualiTurns }, (_, t) => {
@@ -501,37 +422,16 @@ export default function StepPrintA4({
                             return (
                               <td
                                 key={t}
-                                className="py-1.5 px-1.5 text-center font-mono font-black border-r border-neutral-300 last:border-r-0"
+                                className="py-2 px-2 text-center border-r border-black last:border-r-0"
                               >
-                                {entry?.kartName || '–'}
+                                <span className="inline-block px-3 py-1 rounded-md border-2 border-black bg-neutral-100 font-mono font-black text-base uppercase">
+                                  {entry?.kartName || '–'}
+                                </span>
                               </td>
                             );
                           })}
                         </tr>
                       ))}
-
-                      {hasRestingRow && (
-                        <tr className="bg-neutral-100 border-t-2 border-black font-bold">
-                          <td className="py-1.5 px-2 text-center font-mono border-r border-neutral-300">
-                            –
-                          </td>
-                          <td className="py-1.5 px-2.5 uppercase text-[10px] font-black border-r border-neutral-300">
-                            Freies Kart (Pause in Box)
-                          </td>
-                          {Array.from({ length: qualiTurns }, (_, t) => {
-                            const card = groupQualiCards[t];
-                            const resting = card?.restingKarts || [];
-                            return (
-                              <td
-                                key={t}
-                                className="py-1.5 px-1.5 text-center font-mono font-black border-r border-neutral-300 last:border-r-0"
-                              >
-                                {resting.length > 0 ? resting.join(', ') : '–'}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      )}
                     </tbody>
                   </table>
                 </div>
@@ -540,53 +440,41 @@ export default function StepPrintA4({
           </div>
         )}
 
-        {/* =====================================================================
-            3. AKTUELLER EINZELLAUF (WARM-UP / QUALI)
-           ===================================================================== */}
+        {/* 3. AKTUELLER EINZELLAUF */}
         {printMode === 'current_card' && currentCard && (
           <div className="border-2 border-black rounded-lg overflow-hidden">
-            <div className="bg-black text-white px-4 py-2 flex justify-between items-center">
-              <span className="font-black uppercase text-sm">
-                {currentCard.title}
-              </span>
-              <span className="text-xs font-mono">{currentCard.subtitle}</span>
+            <div className="bg-black text-white px-4 py-3 flex justify-between items-center">
+              <span className="font-black uppercase text-lg">{currentCard.title}</span>
+              <span className="text-xs font-mono font-bold">Offizielles Laufergebnis</span>
             </div>
-            <table className="w-full text-xs border-collapse">
+            <table className="w-full text-base border-collapse">
               <thead>
-                <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                  <th className="py-2 px-3 text-center w-16 border-r border-neutral-300">
-                    Pos
-                  </th>
-                  <th className="py-2 px-3 text-left border-r border-neutral-300">
-                    Fahrer
-                  </th>
-                  <th className="py-2 px-3 text-center w-28 border-r border-neutral-300">
-                    Kart
-                  </th>
-                  <th className="py-2 px-3 text-center w-24 border-r border-neutral-300">
-                    Runden
-                  </th>
-                  <th className="py-2 px-3 text-right w-36">
-                    Schnellste Runde
-                  </th>
+                <tr className="bg-neutral-200 border-b-2 border-black uppercase font-black text-xs">
+                  <th className="py-2.5 px-3 text-center w-20 border-r border-black">Platz</th>
+                  <th className="py-2.5 px-4 text-left border-r border-black">Fahrername</th>
+                  <th className="py-2.5 px-3 text-center w-36 border-r border-black">Kart</th>
+                  <th className="py-2.5 px-3 text-center w-28 border-r border-black">Runden</th>
+                  <th className="py-2.5 px-4 text-right w-44">Schnellste Runde</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-300">
-                {sortSessionEntries(currentCard).map((e, idx) => (
+              <tbody className="divide-y divide-black">
+                {sortSessionEntries(currentCard, hideEmptyKartsOnPrint).map((e, idx) => (
                   <tr key={e.driverId}>
-                    <td className="py-2 px-3 text-center font-black border-r border-neutral-300">
+                    <td className="py-3 px-3 text-center font-black text-lg border-r border-black bg-neutral-100">
                       P{idx + 1}
                     </td>
-                    <td className="py-2 px-3 font-bold border-r border-neutral-300">
+                    <td className="py-3 px-4 font-black text-xl border-r border-black">
                       {e.driverName}
                     </td>
-                    <td className="py-2 px-3 text-center font-mono font-bold border-r border-neutral-300">
-                      {e.kartName}
+                    <td className="py-3 px-3 text-center border-r border-black">
+                      <span className="inline-block px-3.5 py-1 rounded-md border-2 border-black bg-neutral-100 font-mono font-black text-base uppercase">
+                        {e.kartName}
+                      </span>
                     </td>
-                    <td className="py-2 px-3 text-center font-mono border-r border-neutral-300">
+                    <td className="py-3 px-3 text-center font-mono font-black text-lg border-r border-black">
                       {e.laps}
                     </td>
-                    <td className="py-2 px-3 text-right font-mono font-black">
+                    <td className="py-3 px-4 text-right font-mono font-black text-xl">
                       {e.bestTime ? `${Number(e.bestTime).toFixed(3)} s` : '–'}
                     </td>
                   </tr>
@@ -596,213 +484,99 @@ export default function StepPrintA4({
           </div>
         )}
 
-        {/* =====================================================================
-            4. EINZELWERTUNG FINALE GRUPPE (Z. B. GRUPPE B DIREKT NACH ZIELDURCHFAHRT)
-           ===================================================================== */}
+        {/* 4. EINZELWERTUNG FINALE GRUPPE */}
         {printMode === 'final_group' && singleFinalCard && (
-          <div className="space-y-4">
-            <div>
-              <h2 className="text-lg font-black uppercase">
-                Offizielle Einzelwertung – {singleFinalCard.title}
-              </h2>
-              <p className="text-xs text-neutral-600">
-                Wertung nach Position / Rundenanzahl (Meiste Runden = Platz 1).
-              </p>
+          <div className="border-2 border-black rounded-lg overflow-hidden">
+            <div className="bg-black text-white px-4 py-3 flex justify-between items-center text-base font-black uppercase">
+              <span>{singleFinalCard.title}</span>
+              <span>Wertung nach Rundenanzahl</span>
             </div>
-
-            <div className="border-2 border-black rounded-lg overflow-hidden">
-              <div className="bg-black text-white px-4 py-2 flex justify-between items-center text-xs font-black uppercase">
-                <span>{singleFinalCard.title}</span>
-                <span>Rennwertung nach Rundenanzahl</span>
-              </div>
-              <table className="w-full text-xs border-collapse">
-                <thead>
-                  <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                    <th className="py-2 px-3 text-center w-20 border-r border-neutral-300">
-                      Position
-                    </th>
-                    <th className="py-2 px-3 text-center w-28 border-r border-neutral-300">
-                      Startplatz (Grid)
-                    </th>
-                    <th className="py-2 px-3 text-left border-r border-neutral-300">
-                      Fahrer
-                    </th>
-                    <th className="py-2 px-3 text-center w-28 border-r border-neutral-300">
-                      Kart
-                    </th>
-                    <th className="py-2 px-3 text-center w-32 border-r border-neutral-300 bg-neutral-200">
-                      Runden (Wertung)
-                    </th>
-                    <th className="py-2 px-3 text-right w-32">
-                      Schnellste Runde
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-neutral-300">
-                  {sortSessionEntries(singleFinalCard).map((e, idx) => (
-                    <tr key={e.driverId}>
-                      <td className="py-2 px-3 text-center font-black border-r border-neutral-300 bg-neutral-50">
-                        Platz {idx + 1}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono border-r border-neutral-300">
-                        Pole P{e.gridPos}{' '}
-                        {e.qualiRank ? `(Quali #${e.qualiRank})` : ''}
-                      </td>
-                      <td className="py-2 px-3 font-bold border-r border-neutral-300">
-                        {e.driverName}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono font-bold border-r border-neutral-300">
+            <table className="w-full text-base border-collapse">
+              <thead>
+                <tr className="bg-neutral-200 border-b-2 border-black uppercase font-black text-xs">
+                  <th className="py-2.5 px-3 text-center w-20 border-r border-black">Platz</th>
+                  <th className="py-2.5 px-3 text-center w-28 border-r border-black">Grid</th>
+                  <th className="py-2.5 px-4 text-left border-r border-black">Fahrername</th>
+                  <th className="py-2.5 px-3 text-center w-36 border-r border-black">Kart</th>
+                  <th className="py-2.5 px-3 text-center w-32 border-r border-black bg-neutral-300">
+                    Runden
+                  </th>
+                  <th className="py-2.5 px-4 text-right w-40">Beste Runde</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-black">
+                {sortSessionEntries(singleFinalCard, hideEmptyKartsOnPrint).map((e, idx) => (
+                  <tr key={e.driverId}>
+                    <td className="py-3 px-3 text-center font-black text-lg border-r border-black bg-neutral-100">
+                      P{idx + 1}
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono font-bold text-sm border-r border-black">
+                      Pole P{e.gridPos}
+                    </td>
+                    <td className="py-3 px-4 font-black text-xl border-r border-black">
+                      {e.driverName}
+                    </td>
+                    <td className="py-3 px-3 text-center border-r border-black">
+                      <span className="inline-block px-3.5 py-1 rounded-md border-2 border-black bg-neutral-100 font-mono font-black text-base uppercase">
                         {e.kartName}
-                      </td>
-                      <td className="py-2 px-3 text-center font-mono font-black border-r border-neutral-300 bg-neutral-100">
-                        {e.laps} Runden
-                      </td>
-                      <td className="py-2 px-3 text-right font-mono">
-                        {e.bestTime ? `${Number(e.bestTime).toFixed(3)} s` : '–'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </span>
+                    </td>
+                    <td className="py-3 px-3 text-center font-mono font-black text-lg border-r border-black bg-neutral-100">
+                      {e.laps} Rd.
+                    </td>
+                    <td className="py-3 px-4 text-right font-mono font-black text-lg">
+                      {e.bestTime ? `${Number(e.bestTime).toFixed(3)} s` : '–'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
 
-        {/* =====================================================================
-            5. GESAMTWERTUNG FINALE (EINZELGRUPPEN B + A SOWIE GESAMTRANGLISTE)
-           ===================================================================== */}
+        {/* 5. GESAMTWERTUNG FINALE */}
         {printMode === 'final_overall' && (
           <div className="space-y-6">
-            <div>
-              <h2 className="text-lg font-black uppercase">
-                Offizielles Endergebnis – Finalläufe & Gesamtwertung
-              </h2>
-              <p className="text-xs text-neutral-600">
-                Einzelwertungen der Finalgruppen (Startreihenfolge: Langsamste Gruppe zuerst) sowie Gesamtwertung über alle Fahrer.
-              </p>
-            </div>
-
-            {/* Einzelwertungen jeder Gruppe in chronologischer Startreihenfolge (z.B. erst Gruppe B, dann Gruppe A) */}
-            <div className="space-y-4">
-              {finalCards.map((fc, fIdx) => (
-                <div
-                  key={fc.id}
-                  className="border-2 border-black rounded-lg overflow-hidden break-inside-avoid"
-                >
-                  <div className="bg-black text-white px-3 py-1.5 flex justify-between items-center text-xs font-black uppercase">
-                    <span>
-                      {fIdx + 1}. Finallauf: {fc.title}
-                    </span>
-                    <span>Einzelwertung {fc.groupName} (nach Runden)</span>
-                  </div>
-                  <table className="w-full text-[11px] border-collapse">
-                    <thead>
-                      <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                        <th className="py-1.5 px-2 text-center w-20 border-r border-neutral-300">
-                          Gruppen-Platz
-                        </th>
-                        <th className="py-1.5 px-2 text-center w-24 border-r border-neutral-300">
-                          Startplatz
-                        </th>
-                        <th className="py-1.5 px-2.5 text-left border-r border-neutral-300">
-                          Fahrer
-                        </th>
-                        <th className="py-1.5 px-2 text-center w-24 border-r border-neutral-300">
-                          Kart
-                        </th>
-                        <th className="py-1.5 px-2 text-center w-28 border-r border-neutral-300 bg-neutral-200">
-                          Runden
-                        </th>
-                        <th className="py-1.5 px-2 text-right w-28">
-                          Beste Runde
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-neutral-300">
-                      {sortSessionEntries(fc).map((e, idx) => (
-                        <tr key={e.driverId}>
-                          <td className="py-1.5 px-2 text-center font-black border-r border-neutral-300 bg-neutral-50">
-                            P{idx + 1}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono border-r border-neutral-300">
-                            Pole P{e.gridPos}
-                          </td>
-                          <td className="py-1.5 px-2.5 font-bold border-r border-neutral-300">
-                            {e.driverName}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono border-r border-neutral-300">
-                            {e.kartName}
-                          </td>
-                          <td className="py-1.5 px-2 text-center font-mono font-black border-r border-neutral-300 bg-neutral-100">
-                            {e.laps} Rd.
-                          </td>
-                          <td className="py-1.5 px-2 text-right font-mono">
-                            {e.bestTime
-                              ? `${Number(e.bestTime).toFixed(3)} s`
-                              : '–'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ))}
-            </div>
-
-            {/* Kombinierte Gesamtrangliste aller Finalgruppen */}
             <div className="border-2 border-black rounded-lg overflow-hidden break-inside-avoid">
-              <div className="bg-black text-white px-3 py-1.5 flex justify-between items-center text-xs font-black uppercase">
-                <span>
-                  Gesamtwertung Finale – Alle Gruppen kombiniert (Platz #1 bis #{combinedFinals.length})
-                </span>
-                <span>Offizielles Endklassement</span>
+              <div className="bg-black text-white px-4 py-2.5 flex justify-between items-center text-base font-black uppercase">
+                <span>Offizielles Endergebnis Finale (Platz #1 bis #{combinedFinals.length})</span>
+                <span>Alle Finalgruppen kombiniert</span>
               </div>
-              <table className="w-full text-[11px] border-collapse">
+              <table className="w-full text-base border-collapse">
                 <thead>
-                  <tr className="bg-neutral-100 border-b border-black uppercase font-black">
-                    <th className="py-1.5 px-2 text-center w-20 border-r border-neutral-300">
-                      Gesamt-Rang
-                    </th>
-                    <th className="py-1.5 px-2.5 text-left border-r border-neutral-300">
-                      Fahrer
-                    </th>
-                    <th className="py-1.5 px-2 text-center w-36 border-r border-neutral-300">
-                      Final-Gruppe (Platz)
-                    </th>
-                    <th className="py-1.5 px-2 text-center w-24 border-r border-neutral-300">
-                      Kart
-                    </th>
-                    <th className="py-1.5 px-2 text-center w-28 border-r border-neutral-300 bg-neutral-200">
+                  <tr className="bg-neutral-200 border-b-2 border-black uppercase font-black text-xs">
+                    <th className="py-2.5 px-3 text-center w-20 border-r border-black">Rang</th>
+                    <th className="py-2.5 px-4 text-left border-r border-black">Fahrername</th>
+                    <th className="py-2.5 px-3 text-center w-40 border-r border-black">Final-Gruppe</th>
+                    <th className="py-2.5 px-3 text-center w-32 border-r border-black">Kart</th>
+                    <th className="py-2.5 px-3 text-center w-28 border-r border-black bg-neutral-300">
                       Runden
                     </th>
-                    <th className="py-1.5 px-2 text-right w-28">
-                      Beste Runde
-                    </th>
+                    <th className="py-2.5 px-4 text-right w-36">Beste Runde</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-300">
+                <tbody className="divide-y divide-black">
                   {combinedFinals.map((row) => (
                     <tr key={row.driverId}>
-                      <td className="py-1.5 px-2 text-center font-mono font-black border-r border-neutral-300 bg-neutral-50">
+                      <td className="py-2.5 px-3 text-center font-mono font-black text-lg border-r border-black bg-neutral-100">
                         #{row.overallRank}
                       </td>
-                      <td className="py-1.5 px-2.5 font-bold border-r border-neutral-300">
+                      <td className="py-2.5 px-4 font-black text-lg border-r border-black">
                         {row.driverName}
                       </td>
-                      <td className="py-1.5 px-2 text-center border-r border-neutral-300">
-                        {row.finalGroupName.replace('Finale ', '')} • Platz{' '}
-                        {row.groupRank}
+                      <td className="py-2.5 px-3 text-center font-bold text-sm border-r border-black">
+                        {row.finalGroupName.replace('Finale ', '')} (P{row.groupRank})
                       </td>
-                      <td className="py-1.5 px-2 text-center font-mono border-r border-neutral-300">
-                        {row.kartName}
+                      <td className="py-2.5 px-3 text-center border-r border-black">
+                        <span className="inline-block px-3 py-0.5 rounded border-2 border-black bg-neutral-100 font-mono font-black text-sm uppercase">
+                          {row.kartName}
+                        </span>
                       </td>
-                      <td className="py-1.5 px-2 text-center font-mono font-black border-r border-neutral-300 bg-neutral-100">
+                      <td className="py-2.5 px-3 text-center font-mono font-black text-base border-r border-black bg-neutral-100">
                         {row.laps} Rd.
                       </td>
-                      <td className="py-1.5 px-2 text-right font-mono">
-                        {row.bestTime
-                          ? `${Number(row.bestTime).toFixed(3)} s`
-                          : '–'}
+                      <td className="py-2.5 px-4 text-right font-mono font-black text-base">
+                        {row.bestTime ? `${Number(row.bestTime).toFixed(3)} s` : '–'}
                       </td>
                     </tr>
                   ))}
@@ -812,9 +586,7 @@ export default function StepPrintA4({
           </div>
         )}
 
-        {/* =====================================================================
-            6. MOTORSPORT SIEGER-URKUNDE (A4)
-           ===================================================================== */}
+        {/* 6. SIEGER-URKUNDE */}
         {printMode === 'certificate' && selectedStanding && (
           <div className="border-8 border-double border-black p-10 text-center my-4">
             <div className="text-xs font-black uppercase tracking-[0.25em] text-neutral-500 mb-2">
@@ -856,17 +628,8 @@ export default function StepPrintA4({
                 </div>
               </div>
             </div>
-            <div className="flex justify-between items-center text-xs text-neutral-500 pt-10 px-8">
-              <div>Datum: {new Date().toLocaleDateString('de-DE')}</div>
-              <div>Rennleitung • Kartbahn Rheinfelden</div>
-            </div>
           </div>
         )}
-
-        <div className="mt-8 pt-3 border-t border-neutral-300 flex justify-between text-[10px] text-neutral-500">
-          <span>HR-RaceMaster • Offizieller Zeitnahme-Beleg</span>
-          <span>© Copyright Hans Richter</span>
-        </div>
       </div>
     </div>
   );

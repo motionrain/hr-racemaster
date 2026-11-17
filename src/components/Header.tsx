@@ -1,6 +1,16 @@
 // src/components/Header.tsx
 import React from 'react';
-import { Trophy, Settings, Grid, Activity, Flag, Printer, Sun, Moon } from 'lucide-react';
+import {
+  Trophy,
+  Settings,
+  Grid,
+  Activity,
+  Flag,
+  Printer,
+  Sun,
+  Moon,
+  QrCode,
+} from 'lucide-react';
 import { MainTab } from '../types/kart';
 
 interface HeaderProps {
@@ -11,6 +21,7 @@ interface HeaderProps {
   setDarkMode: (val: boolean) => void;
   activeKartsCount: number;
   maxTrackKarts: number;
+  onOpenQrModal: () => void;
 }
 
 export default function Header({
@@ -21,10 +32,11 @@ export default function Header({
   setDarkMode,
   activeKartsCount,
   maxTrackKarts,
+  onOpenQrModal,
 }: HeaderProps) {
   const navItems: { id: MainTab; label: string; icon: React.ElementType }[] = [
     { id: 'setup', label: '1. Event & Karts', icon: Settings },
-    { id: 'rotation', label: '2. Gruppen & Rotations-Plan (Live)', icon: Grid },
+    { id: 'rotation', label: '2. Gruppen & Rotation', icon: Grid },
     { id: 'live', label: '3. Live-Karten (KaRaS)', icon: Activity },
     { id: 'finals', label: '4. Finale (Runden)', icon: Flag },
     { id: 'print', label: '5. A4 Druck & Urkunde', icon: Printer },
@@ -39,7 +51,6 @@ export default function Header({
       }`}
     >
       <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-        {/* HR-RaceMaster Branding */}
         <div className="flex items-center space-x-3">
           <div className="bg-amber-500 text-black p-2.5 rounded-xl font-black flex items-center shadow">
             <Trophy className="w-6 h-6" />
@@ -50,14 +61,13 @@ export default function Header({
                 HR-RaceMaster
               </span>
               <span className="text-xs opacity-70">
-                {activeKartsCount} Karts bereit • Max. {maxTrackKarts} auf Bahn
+                {activeKartsCount} Karts bereit • Max. {maxTrackKarts} pro Gruppe
               </span>
             </div>
             <h1 className="text-lg font-black tracking-tight">{eventName}</h1>
           </div>
         </div>
 
-        {/* Navigation */}
         <div className="flex flex-wrap items-center gap-2">
           {navItems.map((item) => {
             const Icon = item.icon;
@@ -80,7 +90,17 @@ export default function Header({
             );
           })}
 
-          {/* Star Dust Theme Switcher */}
+          {/* Smartphone QR-Code Button immer oben sichtbar */}
+          <button
+            type="button"
+            onClick={onOpenQrModal}
+            className="flex items-center px-3.5 py-2 rounded-lg text-xs sm:text-sm font-black bg-rose-600 hover:bg-rose-500 text-white shadow-md transition"
+            title="QR-Code für Smartphone Fahrer-Check-In anzeigen"
+          >
+            <QrCode className="w-4 h-4 mr-1.5" />
+            📱 Mobile QR-Code
+          </button>
+
           <button
             onClick={() => setDarkMode(!darkMode)}
             title="Star Dust Light / Dark wechseln"

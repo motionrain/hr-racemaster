@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { QrCode } from 'lucide-react';
 import {
   Driver,
   EventMode,
@@ -28,6 +29,7 @@ import StepRotationBoard from '../components/StepRotationBoard';
 import StepLiveCards from '../components/StepLiveCards';
 import StepFinals from '../components/StepFinals';
 import StepPrintA4 from '../components/StepPrintA4';
+import QrCodeModal from '../components/QrCodeModal';
 
 const DEFAULT_DRIVERS = [
   'Michael Fassbind',
@@ -51,6 +53,7 @@ const DEFAULT_DRIVERS = [
 export default function HRRaceMasterPage() {
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<MainTab>('setup');
+  const [qrModalOpen, setQrModalOpen] = useState<boolean>(false);
 
   const [eventName, setEventName] = useState<string>('KartRolling Grand Prix');
   const [eventMode, setEventMode] = useState<EventMode>('rolling');
@@ -316,6 +319,7 @@ export default function HRRaceMasterPage() {
         setDarkMode={setDarkMode}
         activeKartsCount={activeKarts.length}
         maxTrackKarts={maxTrackKarts}
+        onOpenQrModal={() => setQrModalOpen(true)}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-6">
@@ -339,8 +343,10 @@ export default function HRRaceMasterPage() {
             rawDriversText={rawDriversText}
             setRawDriversText={handleLocalDriversChange}
             groups={groups}
+            onAssignGroupKarts={handleAssignGroupKarts}
             onInitializeSessions={handleInitializeSessions}
             onOpenRotationBoard={handleOpenRotationBoard}
+            onOpenQrModal={() => setQrModalOpen(true)}
             mobileUrl={mobileUrl}
             mainUrl={mainUrl}
           />
@@ -441,6 +447,22 @@ export default function HRRaceMasterPage() {
           />
         )}
       </main>
+
+      {/* Schwebender QR-Code-Button rechts unten auf jedem Tab */}
+      <button
+        type="button"
+        onClick={() => setQrModalOpen(true)}
+        className="fixed bottom-5 right-5 z-40 px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-2xl border-2 border-rose-400 flex items-center space-x-2 print:hidden transition hover:scale-105"
+      >
+        <QrCode className="w-4 h-4" />
+        <span>📱 Mobile QR-Code</span>
+      </button>
+
+      <QrCodeModal
+        open={qrModalOpen}
+        onClose={() => setQrModalOpen(false)}
+        mobileUrl={mobileUrl}
+      />
     </div>
   );
 }

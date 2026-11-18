@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { QrCode } from 'lucide-react';
+import { QrCode, HelpCircle, Save } from 'lucide-react';
 import {
   Driver,
   EventMode,
@@ -30,6 +30,10 @@ import StepLiveCards from '../components/StepLiveCards';
 import StepFinals from '../components/StepFinals';
 import StepPrintA4 from '../components/StepPrintA4';
 import QrCodeModal from '../components/QrCodeModal';
+import HelpUpdateModal from '../components/HelpUpdateModal';
+import BackupModal, { RaceBackupData } from '../components/BackupModal';
+
+const AUTOSAVE_STORAGE_KEY = 'hr_racemaster_autosave_v1';
 
 const DEFAULT_DRIVERS = [
   'Michael Fassbind',
@@ -54,6 +58,9 @@ export default function HRRaceMasterPage() {
   const [darkMode, setDarkMode] = useState<boolean>(true);
   const [activeTab, setActiveTab] = useState<MainTab>('setup');
   const [qrModalOpen, setQrModalOpen] = useState<boolean>(false);
+  const [helpModalOpen, setHelpModalOpen] = useState<boolean>(false);
+  const [backupModalOpen, setBackupModalOpen] = useState<boolean>(false);
+  const [autoCheckUpdate, setAutoCheckUpdate] = useState<boolean>(false);
 
   const [eventName, setEventName] = useState<string>('KartRolling Grand Prix');
   const [eventMode, setEventMode] = useState<EventMode>('rolling');
@@ -69,12 +76,161 @@ export default function HRRaceMasterPage() {
   const [mainUrl, setMainUrl] = useState<string>('http://localhost:3000');
   const lastServerUpdatedAt = useRef<number>(0);
   const isTypingLocally = useRef<boolean>(false);
+  const isHydratedRef = useRef<boolean>(false);
 
   const [sessionCards, setSessionCards] = useState<SessionCard[]>([]);
   const [activeCardIndex, setActiveCardIndex] = useState<number>(0);
   const [finalCards, setFinalCards] = useState<SessionCard[]>([]);
   const [activeFinalIndex, setActiveFinalIndex] = useState<number>(0);
   const [printMode, setPrintMode] = useState<PrintViewMode>('quali_total');
+  const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string>('');
+
+  const applyRestoredBackup = useCallback((b: RaceBackupData) => {
+    if (b.eventName) setEventName(b.eventName);
+    if (b.eventMode) setEventMode(b.eventMode);
+    if (typeof b.hasWarmup === 'boolean') setHasWarmup(b.hasWarmup);
+    if (typeof b.gpQualiCount === 'number') setGpQualiCount(b.gpQualiCount);
+    if (typeof b.maxTrackKarts === 'number') setMaxTrackKarts(b.maxTrackKarts);
+    if (b.fleetType) setFleetType(b.fleetType);
+    if (Array.isArray(b.karts) && b.karts.length > 0) setKarts(b.karts);
+    if (typeof b.rawDriversText === 'string' && b.rawDriversText.trim()) {
+      setRawDriversText(b.rawDriversText);
+      const lines = b.rawDriversText
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean);
+      fetch('/api/event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'set_drivers',
+          drivers: lines,
+          eventName: b.eventName || 'KartRolling Grand Prix',
+        }),
+      }).catch(() => {});
+    }
+    if (b.customGroupKarts && typeof b.customGroupKarts === 'object') {
+      setCustomGroupKarts(b.customGroupKarts);
+    }
+    if (Array.isArray(b.sessionCards) && b.sessionCards.length > 0) {
+      setSessionCards(b.sessionCards);
+    }
+    if (typeof b.activeCardIndex === 'number') {
+      setActiveCardIndex(b.activeCardIndex);
+    }
+    if (Array.isArray(b.finalCards)) {
+      setFinalCards(b.finalCards);
+    }
+    if (typeof b.activeFinalIndex === 'number') {
+      setActiveFinalIndex(b.activeFinalIndex);
+    }
+  }, []);
+
+  // 1. Beim Start: Automatische Wiederherstellung aus localStorage oder vom Server (/api/backup)
+  useEffect(() => {
+    let restored = false;
+    try {
+      const localRaw = window.localStorage.getItem(AUTOSAVE_STORAGE_KEY);
+      if (localRaw) {
+        const parsed = JSON.parse(localRaw) as RaceBackupData;
+        if (parsed && Array.isArray(parsed.sessionCards) && parsed.sessionCards.length > 0) {
+          applyRestoredBackup(parsed);
+          restored = true;
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    if (!restored) {
+      fetch('/api/backup', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d) => {
+          if (d?.autosave && Array.isArray(d.autosave.sessionCards) && d.autosave.sessionCards.length > 0) {
+            applyRestoredBackup(d.autosave as RaceBackupData);
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          isHydratedRef.current = true;
+        });
+    } else {
+      isHydratedRef.current = true;
+    }
+  }, [applyRestoredBackup]);
+
+  const currentBackupPayload: RaceBackupData = useMemo(
+    () => ({
+      version: '1.4.0',
+      eventName,
+      eventMode,
+      hasWarmup,
+      gpQualiCount,
+      maxTrackKarts,
+      fleetType,
+      karts,
+      rawDriversText,
+      customGroupKarts,
+      sessionCards,
+      activeCardIndex,
+      finalCards,
+      activeFinalIndex,
+    }),
+    [
+      eventName,
+      eventMode,
+      hasWarmup,
+      gpQualiCount,
+      maxTrackKarts,
+      fleetType,
+      karts,
+      rawDriversText,
+      customGroupKarts,
+      sessionCards,
+      activeCardIndex,
+      finalCards,
+      activeFinalIndex,
+    ]
+  );
+
+  // 2. Laufendes Auto-Save bei jeder Änderung (sofort in localStorage + gedrosselt auf Festplatte)
+  useEffect(() => {
+    if (!isHydratedRef.current || sessionCards.length === 0) return;
+
+    const timeStr = new Date().toLocaleTimeString('de-DE', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+
+    try {
+      window.localStorage.setItem(
+        AUTOSAVE_STORAGE_KEY,
+        JSON.stringify(currentBackupPayload)
+      );
+      setLastAutoSaveTime(timeStr);
+    } catch {
+      // ignore
+    }
+
+    const timer = setTimeout(() => {
+      fetch('/api/backup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'autosave',
+          backup: currentBackupPayload,
+        }),
+      }).catch(() => {});
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [currentBackupPayload, sessionCards.length]);
+
+  const handleOpenHelpModal = (checkUpdateNow: boolean = false) => {
+    setAutoCheckUpdate(checkUpdateNow);
+    setHelpModalOpen(true);
+  };
 
   useEffect(() => {
     const pollSmartphoneDrivers = async () => {
@@ -91,9 +247,11 @@ export default function HRRaceMasterPage() {
           data.updatedAt > lastServerUpdatedAt.current &&
           Array.isArray(data.drivers)
         ) {
+          if (lastServerUpdatedAt.current > 0) {
+            setRawDriversText(data.drivers.join('\n'));
+            if (data.eventName) setEventName(data.eventName);
+          }
           lastServerUpdatedAt.current = data.updatedAt;
-          setRawDriversText(data.drivers.join('\n'));
-          if (data.eventName) setEventName(data.eventName);
         }
       } catch {
         // Ignorieren
@@ -249,8 +407,25 @@ export default function HRRaceMasterPage() {
       []
     );
     setSessionCards(generated);
+    setFinalCards([]);
     setActiveCardIndex(0);
     setActiveTab('live');
+  };
+
+  const handleResetNewEvent = () => {
+    const generated = generateQualiSessionCards(
+      groups,
+      activeKarts,
+      eventMode,
+      hasWarmup,
+      qualiTurns,
+      []
+    );
+    setSessionCards(generated);
+    setFinalCards([]);
+    setActiveCardIndex(0);
+    setActiveFinalIndex(0);
+    setActiveTab('setup');
   };
 
   const handleOpenRotationBoard = () => {
@@ -319,7 +494,10 @@ export default function HRRaceMasterPage() {
         setDarkMode={setDarkMode}
         activeKartsCount={activeKarts.length}
         maxTrackKarts={maxTrackKarts}
+        lastAutoSaveTime={lastAutoSaveTime}
         onOpenQrModal={() => setQrModalOpen(true)}
+        onOpenBackupModal={() => setBackupModalOpen(true)}
+        onOpenHelpModal={handleOpenHelpModal}
       />
 
       <main className="flex-1 max-w-7xl w-full mx-auto p-6">
@@ -448,20 +626,57 @@ export default function HRRaceMasterPage() {
         )}
       </main>
 
-      {/* Schwebender QR-Code-Button rechts unten auf jedem Tab */}
-      <button
-        type="button"
-        onClick={() => setQrModalOpen(true)}
-        className="fixed bottom-5 right-5 z-40 px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-2xl border-2 border-rose-400 flex items-center space-x-2 print:hidden transition hover:scale-105"
-      >
-        <QrCode className="w-4 h-4" />
-        <span>📱 Mobile QR-Code</span>
-      </button>
+      {/* Schwebende Schnellzugriff-Buttons rechts unten (Backup, Hilfe/Update & Mobile QR-Code) */}
+      <div className="fixed bottom-5 right-5 z-40 flex items-center space-x-2 print:hidden">
+        <button
+          type="button"
+          onClick={() => setBackupModalOpen(true)}
+          className="px-3.5 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#272727] text-emerald-400 font-black text-xs shadow-2xl border-2 border-emerald-500/60 flex items-center space-x-1.5 transition hover:scale-105"
+          title="Rennergebnisse als JSON speichern oder Backup laden"
+        >
+          <Save className="w-4 h-4" />
+          <span>💾 Backup / JSON</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => handleOpenHelpModal(false)}
+          className="px-3.5 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#272727] text-amber-400 font-black text-xs shadow-2xl border-2 border-amber-500/60 flex items-center space-x-1.5 transition hover:scale-105"
+          title="Hilfe, Info & Check for Updates"
+        >
+          <HelpCircle className="w-4 h-4" />
+          <span>Hilfe & Update</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setQrModalOpen(true)}
+          className="px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-2xl border-2 border-rose-400 flex items-center space-x-2 transition hover:scale-105"
+        >
+          <QrCode className="w-4 h-4" />
+          <span>📱 Mobile QR-Code</span>
+        </button>
+      </div>
 
       <QrCodeModal
         open={qrModalOpen}
         onClose={() => setQrModalOpen(false)}
         mobileUrl={mobileUrl}
+      />
+
+      <BackupModal
+        open={backupModalOpen}
+        onClose={() => setBackupModalOpen(false)}
+        currentBackupData={currentBackupPayload}
+        lastAutoSaveTime={lastAutoSaveTime}
+        onRestoreBackup={applyRestoredBackup}
+        onResetNewEvent={handleResetNewEvent}
+      />
+
+      <HelpUpdateModal
+        open={helpModalOpen}
+        onClose={() => setHelpModalOpen(false)}
+        autoCheckOnOpen={autoCheckUpdate}
       />
     </div>
   );

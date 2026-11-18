@@ -12,6 +12,20 @@
   }
 }
 
+@media print {
+  html,
+  body,
+  main,
+  #__next {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
 /* Freundliche Scrollbalken für PC & Tablets */
 ::-webkit-scrollbar {
   width: 8px;

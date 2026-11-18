@@ -96,13 +96,16 @@ export default function StepPrintA4({
       <style>{`
         @page {
           size: A4 portrait;
-          margin: 8mm;
+          margin: 10mm;
         }
         @media print {
-          body {
+          html, body, main {
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
             background: #ffffff !important;
+            background-color: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
           }
         }
       `}</style>
@@ -223,7 +226,7 @@ export default function StepPrintA4({
       {/* =====================================================================
           DIN-A4 DRUCKBLATT (EXAKT A4-KONFORM: 210mm BREITE)
          ===================================================================== */}
-      <div className="bg-white text-black p-5 sm:p-7 rounded-2xl shadow-xl w-full max-w-[210mm] mx-auto print:shadow-none print:p-0 print:max-w-none">
+      <div className="bg-white text-black p-5 sm:p-7 rounded-2xl shadow-xl w-full max-w-[210mm] mx-auto print:shadow-none print:rounded-none print:p-1 print:m-0 print:max-w-none print:w-full">
         {/* Standard-Listen-Header (wird bei der Vollbild-Urkunde ausgeblendet, da die Urkunde ihr eigenes A4-Design hat) */}
         {printMode !== 'certificate' && (
           <div className="border-b-4 border-black pb-3 mb-4 flex justify-between items-center gap-4">
@@ -296,13 +299,13 @@ export default function StepPrintA4({
                                 </div>
                               </th>
                             ))}
-                            <th className="py-1.5 px-2 text-right border-r border-black w-20">
+                            <th className="py-1.5 px-2 text-right border-r border-black w-20 whitespace-nowrap">
                               Beste Rd.
                             </th>
-                            <th className="py-1.5 px-2 text-right border-r border-black w-24 bg-neutral-300">
+                            <th className="py-1.5 px-2 text-right border-r border-black w-24 bg-neutral-300 whitespace-nowrap">
                               Gesamtzeit
                             </th>
-                            <th className="py-1.5 px-2 text-center w-24">
+                            <th className="py-1.5 px-2 text-center w-28 whitespace-nowrap">
                               Finale
                             </th>
                           </tr>
@@ -335,7 +338,7 @@ export default function StepPrintA4({
                               <td className="py-1.5 px-2 text-right font-mono font-black text-xs border-r border-black bg-neutral-100">
                                 {st.totalTime ? `${st.totalTime.toFixed(3)}s` : '–'}
                               </td>
-                              <td className="py-1.5 px-1.5 text-center font-black text-[11px]">
+                              <td className="py-1.5 px-2 text-center font-black text-[11px] whitespace-nowrap">
                                 {st.targetFinalName.replace('Finale ', '')} • P{st.targetGridPos}
                               </td>
                             </tr>
@@ -380,13 +383,13 @@ export default function StepPrintA4({
                           </div>
                         </th>
                       ))}
-                      <th className="py-1.5 px-2 text-right border-r border-black w-20">
+                      <th className="py-1.5 px-2 text-right border-r border-black w-20 whitespace-nowrap">
                         Beste Rd.
                       </th>
-                      <th className="py-1.5 px-2 text-right border-r border-black w-24 bg-neutral-300">
+                      <th className="py-1.5 px-2 text-right border-r border-black w-24 bg-neutral-300 whitespace-nowrap">
                         Gesamtzeit
                       </th>
-                      <th className="py-1.5 px-2 text-center w-28">
+                      <th className="py-1.5 px-2 text-center w-28 whitespace-nowrap">
                         Qualifiziert für
                       </th>
                     </tr>
@@ -422,7 +425,7 @@ export default function StepPrintA4({
                         <td className="py-1.5 px-2 text-right font-mono font-black text-xs border-r border-black bg-neutral-100">
                           {st.totalTime ? `${st.totalTime.toFixed(3)}s` : '–'}
                         </td>
-                        <td className="py-1.5 px-2 text-center font-black text-[11px]">
+                        <td className="py-1.5 px-2 text-center font-black text-[11px] whitespace-nowrap">
                           {st.targetFinalName.replace('Finale ', '')} (Pole P{st.targetGridPos})
                         </td>
                       </tr>

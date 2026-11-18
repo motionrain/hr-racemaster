@@ -532,7 +532,7 @@ export default function HRRaceMasterPage() {
 
   return (
     <div
-      className={`min-h-screen flex flex-col font-sans transition-colors ${
+      className={`min-h-screen print:min-h-0 flex flex-col font-sans transition-colors print:bg-white print:text-black ${
         darkMode
           ? 'bg-[#0B0B0B] text-[#FAFAFA]'
           : 'bg-[#E6E6E6] text-[#1A1A1A]'
@@ -553,7 +553,7 @@ export default function HRRaceMasterPage() {
         onOpenHelpModal={handleOpenHelpModal}
       />
 
-      <main className="flex-1 max-w-[1440px] w-full mx-auto p-3 sm:p-6">
+      <main className="flex-1 max-w-[1440px] w-full mx-auto p-3 sm:p-6 print:p-0 print:m-0 print:max-w-none print:w-full print:bg-white">
         {activeTab === 'setup' && (
           <StepSetup
             darkMode={darkMode}

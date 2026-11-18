@@ -33,7 +33,7 @@ import HelpUpdateModal from '../components/HelpUpdateModal';
 import BackupModal, { RaceBackupData } from '../components/BackupModal';
 
 const AUTOSAVE_STORAGE_KEY = 'hr_racemaster_autosave_v1';
-const LOGO_STORAGE_KEY = 'hr_racemaster_custom_logo_v1';
+const LOGO_STORAGE_KEY = 'hr_racemaster_custom_logo_v2';
 
 const DEFAULT_DRIVERS = [
   'Michael Fassbind',

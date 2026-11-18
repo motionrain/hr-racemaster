@@ -1,7 +1,6 @@
 // src/components/Header.tsx
 import React from 'react';
 import {
-  Trophy,
   Settings,
   Grid,
   Activity,
@@ -15,6 +14,8 @@ import {
   Save,
 } from 'lucide-react';
 import { MainTab } from '../types/kart';
+
+export const DEFAULT_RACEMASTER_LOGO = '/hr-racemaster-logo.png';
 
 interface HeaderProps {
   eventName: string;
@@ -45,6 +46,8 @@ export default function Header({
   onOpenBackupModal,
   onOpenHelpModal,
 }: HeaderProps) {
+  const activeLogoSrc = customLogo || DEFAULT_RACEMASTER_LOGO;
+
   const navItems: {
     id: MainTab;
     step: string;
@@ -102,35 +105,25 @@ export default function Header({
       className={`sticky top-0 z-40 backdrop-blur-md border-b px-3 sm:px-6 py-3 transition-colors print:hidden shadow-sm ${headerBg}`}
     >
       <div className="max-w-[1440px] mx-auto space-y-3">
-        {/* Obere Zeile: Eigenes Logo (oder Pokal), Event-Titel & Schnell-Werkzeuge */}
+        {/* Obere Zeile: Fest eingebautes PNG-Hauptlogo OHNE weiße Umrandung, Event-Titel & Werkzeuge */}
         <div className="flex flex-wrap items-center justify-between gap-2.5">
-          <div className="flex items-center space-x-3 min-w-0">
-            {customLogo ? (
-              <div
-                onClick={() => onOpenHelpModal(false)}
-                className="cursor-pointer bg-white/95 px-2.5 py-1.5 rounded-xl border border-amber-500/40 shadow-md shrink-0 flex items-center justify-center"
-                title="Eigenes Logo (Klicken um Logo in den Hilfe-Optionen zu ändern)"
-              >
-                <img
-                  src={customLogo}
-                  alt="Logo"
-                  className="h-9 sm:h-11 w-auto max-w-[150px] object-contain"
-                />
-              </div>
-            ) : (
-              <div
-                onClick={() => onOpenHelpModal(false)}
-                className="cursor-pointer bg-amber-500 text-black p-2.5 rounded-2xl font-black flex items-center shadow-md shrink-0"
-                title="Klicken um eigenes Logo in den Hilfe-Optionen hochzuladen"
-              >
-                <Trophy className="w-6 h-6" />
-              </div>
-            )}
+          <div className="flex items-center space-x-3.5 min-w-0">
+            <div
+              onClick={() => onOpenHelpModal(false)}
+              className="cursor-pointer shrink-0 flex items-center justify-center hover:opacity-95 transition"
+              title="HR-RaceMaster Hauptlogo (Klicken um in den Hilfe-Optionen ein anderes Logo zu wählen)"
+            >
+              <img
+                src={activeLogoSrc}
+                alt="HR-RaceMaster Logo"
+                className="h-11 sm:h-12 w-auto max-w-[230px] object-contain block"
+              />
+            </div>
 
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500 text-black">
-                  HR-RaceMaster v1.6
+                  v1.7.1
                 </span>
                 <span className="text-xs font-bold opacity-75">
                   {activeKartsCount} Karts aktiv • Max. {maxTrackKarts}/Gruppe
@@ -147,7 +140,7 @@ export default function Header({
             </div>
           </div>
 
-          {/* Freundliche Touch-Werkzeugleiste für PC, Tablet & Smartphone */}
+          {/* Freundliche Touch-Werkzeugleiste */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             <button
               type="button"
@@ -182,7 +175,7 @@ export default function Header({
             <button
               type="button"
               onClick={() => onOpenHelpModal(false)}
-              title="Hilfe, Logo-Upload, Entwickler-Kontakt & GitHub Dokumentation"
+              title="Hilfe, Logo ändern, Offline-Update & Kontakt"
               className={`flex items-center px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${toolBtnBg}`}
             >
               <HelpCircle className="w-4 h-4 mr-1 text-amber-400 shrink-0" />
@@ -204,7 +197,7 @@ export default function Header({
           </div>
         </div>
 
-        {/* Untere Zeile: Große, freundliche 5-Schritte Touch-Navigation */}
+        {/* Untere Zeile: 5-Schritte Touch-Navigation */}
         <nav className="grid grid-cols-5 gap-1.5 sm:gap-2.5 pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;

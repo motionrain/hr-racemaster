@@ -11,6 +11,7 @@ const DATA_FILE = path.join(os.tmpdir(), 'racemaster-live-state.json');
 interface SharedRaceState {
   eventName: string;
   drivers: string[];
+  customLogo?: string;
   updatedAt: number;
 }
 
@@ -73,11 +74,12 @@ function readState(): SharedRaceState {
       }
     }
   } catch {
-    // Ignoriere Dateifehler, nutze RAM-State
+    // ignore
   }
   const initial: SharedRaceState = {
     eventName: 'KartRolling Grand Prix',
     drivers: [...DEFAULT_DRIVERS],
+    customLogo: '',
     updatedAt: Date.now(),
   };
   globalForRace.__raceMasterState = initial;
@@ -90,7 +92,7 @@ function writeState(state: SharedRaceState) {
   try {
     fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2), 'utf-8');
   } catch {
-    // Falls /tmp gesperrt ist, läuft alles weiter im RAM
+    // ignore
   }
 }
 
@@ -108,6 +110,7 @@ export async function GET() {
     return NextResponse.json({
       eventName: 'KartRolling Grand Prix',
       drivers: DEFAULT_DRIVERS,
+      customLogo: '',
       updatedAt: Date.now(),
       lanIp: 'localhost',
       mobileUrl: 'http://localhost:3000/mobile',
@@ -170,6 +173,9 @@ export async function POST(request: Request) {
     } else if (body.action === 'set_event_name' && typeof body.eventName === 'string') {
       state.eventName = body.eventName.trim() || state.eventName;
       state.updatedAt = Date.now();
+      writeState(state);
+    } else if (body.action === 'set_logo' && typeof body.customLogo === 'string') {
+      state.customLogo = body.customLogo;
       writeState(state);
     }
 

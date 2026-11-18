@@ -33,6 +33,7 @@ import HelpUpdateModal from '../components/HelpUpdateModal';
 import BackupModal, { RaceBackupData } from '../components/BackupModal';
 
 const AUTOSAVE_STORAGE_KEY = 'hr_racemaster_autosave_v1';
+const LOGO_STORAGE_KEY = 'hr_racemaster_custom_logo_v1';
 
 const DEFAULT_DRIVERS = [
   'Michael Fassbind',
@@ -62,6 +63,7 @@ export default function HRRaceMasterPage() {
   const [autoCheckUpdate, setAutoCheckUpdate] = useState<boolean>(false);
 
   const [eventName, setEventName] = useState<string>('KartRolling Grand Prix');
+  const [customLogo, setCustomLogo] = useState<string>('');
   const [eventMode, setEventMode] = useState<EventMode>('rolling');
   const [hasWarmup, setHasWarmup] = useState<boolean>(false);
   const [gpQualiCount, setGpQualiCount] = useState<number>(2);
@@ -84,15 +86,35 @@ export default function HRRaceMasterPage() {
   const [printMode, setPrintMode] = useState<PrintViewMode>('quali_total');
   const [lastAutoSaveTime, setLastAutoSaveTime] = useState<string>('');
 
+  const handleChangeCustomLogo = useCallback((dataUrl: string) => {
+    setCustomLogo(dataUrl);
+    try {
+      if (dataUrl) {
+        window.localStorage.setItem(LOGO_STORAGE_KEY, dataUrl);
+      } else {
+        window.localStorage.removeItem(LOGO_STORAGE_KEY);
+      }
+    } catch {
+      // ignore
+    }
+    fetch('/api/event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'set_logo', customLogo: dataUrl }),
+    }).catch(() => {});
+  }, []);
+
   const applyRestoredBackup = useCallback((b: RaceBackupData) => {
     if (b.eventName) setEventName(b.eventName);
+    if (typeof b.customLogo === 'string' && b.customLogo) {
+      setCustomLogo(b.customLogo);
+    }
     if (b.eventMode) setEventMode(b.eventMode);
     if (typeof b.hasWarmup === 'boolean') setHasWarmup(b.hasWarmup);
     if (typeof b.gpQualiCount === 'number') setGpQualiCount(b.gpQualiCount);
     if (typeof b.maxTrackKarts === 'number') setMaxTrackKarts(b.maxTrackKarts);
     if (b.fleetType) setFleetType(b.fleetType);
     if (Array.isArray(b.karts) && b.karts.length > 0) {
-      // Falls älteres Backup nur 14 Karts hatte, Kinderkarts (101..108) ergänzen, damit Kombi-Betrieb immer bereit ist
       const hasJunior = b.karts.some((k) => k.name.startsWith('Kids'));
       if (!hasJunior) {
         const juniors = INITIAL_COMBINED_FLEET.filter((k) => k.name.startsWith('Kids'));
@@ -137,6 +159,9 @@ export default function HRRaceMasterPage() {
   useEffect(() => {
     let restored = false;
     try {
+      const savedLogo = window.localStorage.getItem(LOGO_STORAGE_KEY);
+      if (savedLogo) setCustomLogo(savedLogo);
+
       const localRaw = window.localStorage.getItem(AUTOSAVE_STORAGE_KEY);
       if (localRaw) {
         const parsed = JSON.parse(localRaw) as RaceBackupData;
@@ -168,8 +193,9 @@ export default function HRRaceMasterPage() {
 
   const currentBackupPayload: RaceBackupData = useMemo(
     () => ({
-      version: '1.5.0',
+      version: '1.6.0',
       eventName,
+      customLogo,
       eventMode,
       hasWarmup,
       gpQualiCount,
@@ -185,6 +211,7 @@ export default function HRRaceMasterPage() {
     }),
     [
       eventName,
+      customLogo,
       eventMode,
       hasWarmup,
       gpQualiCount,
@@ -247,6 +274,9 @@ export default function HRRaceMasterPage() {
         const data = await res.json();
         if (data.mobileUrl) setMobileUrl(data.mobileUrl);
         if (data.mainUrl) setMainUrl(data.mainUrl);
+        if (typeof data.customLogo === 'string' && data.customLogo && !customLogo) {
+          setCustomLogo(data.customLogo);
+        }
 
         if (
           typeof data.updatedAt === 'number' &&
@@ -267,7 +297,7 @@ export default function HRRaceMasterPage() {
     pollSmartphoneDrivers();
     const interval = setInterval(pollSmartphoneDrivers, 1500);
     return () => clearInterval(interval);
-  }, []);
+  }, [customLogo]);
 
   const handleLocalDriversChange = (newText: string) => {
     isTypingLocally.current = true;
@@ -383,7 +413,6 @@ export default function HRRaceMasterPage() {
     setCustomGroupKarts({});
   };
 
-  // Schaltet Kinderkarts (Kids 1–8) zusätzlich zu den Erwachsenen-Karts dazu oder wieder ab
   const handleToggleJuniorFleetAddon = () => {
     setKarts((prev) => {
       const base = prev.length >= 20 ? prev : INITIAL_COMBINED_FLEET;
@@ -518,6 +547,7 @@ export default function HRRaceMasterPage() {
         activeKartsCount={activeKarts.length}
         maxTrackKarts={maxTrackKarts}
         lastAutoSaveTime={lastAutoSaveTime}
+        customLogo={customLogo}
         onOpenQrModal={() => setQrModalOpen(true)}
         onOpenBackupModal={() => setBackupModalOpen(true)}
         onOpenHelpModal={handleOpenHelpModal}
@@ -636,6 +666,7 @@ export default function HRRaceMasterPage() {
           <StepPrintA4
             darkMode={darkMode}
             eventName={eventName}
+            customLogo={customLogo}
             printMode={printMode}
             setPrintMode={setPrintMode}
             groups={groups}
@@ -669,6 +700,8 @@ export default function HRRaceMasterPage() {
         open={helpModalOpen}
         onClose={() => setHelpModalOpen(false)}
         autoCheckOnOpen={autoCheckUpdate}
+        customLogo={customLogo}
+        onChangeCustomLogo={handleChangeCustomLogo}
       />
     </div>
   );

@@ -25,6 +25,7 @@ interface HeaderProps {
   activeKartsCount: number;
   maxTrackKarts: number;
   lastAutoSaveTime?: string;
+  customLogo?: string;
   onOpenQrModal: () => void;
   onOpenBackupModal: () => void;
   onOpenHelpModal: (autoCheckUpdate?: boolean) => void;
@@ -39,6 +40,7 @@ export default function Header({
   activeKartsCount,
   maxTrackKarts,
   lastAutoSaveTime,
+  customLogo,
   onOpenQrModal,
   onOpenBackupModal,
   onOpenHelpModal,
@@ -100,16 +102,35 @@ export default function Header({
       className={`sticky top-0 z-40 backdrop-blur-md border-b px-3 sm:px-6 py-3 transition-colors print:hidden shadow-sm ${headerBg}`}
     >
       <div className="max-w-[1440px] mx-auto space-y-3">
-        {/* Obere Zeile: Marken-Logo, Event-Titel & Schnell-Werkzeuge (Backup, QR, Update, Hilfe) */}
+        {/* Obere Zeile: Eigenes Logo (oder Pokal), Event-Titel & Schnell-Werkzeuge */}
         <div className="flex flex-wrap items-center justify-between gap-2.5">
           <div className="flex items-center space-x-3 min-w-0">
-            <div className="bg-amber-500 text-black p-2.5 rounded-2xl font-black flex items-center shadow-md shrink-0">
-              <Trophy className="w-6 h-6" />
-            </div>
+            {customLogo ? (
+              <div
+                onClick={() => onOpenHelpModal(false)}
+                className="cursor-pointer bg-white/95 px-2.5 py-1.5 rounded-xl border border-amber-500/40 shadow-md shrink-0 flex items-center justify-center"
+                title="Eigenes Logo (Klicken um Logo in den Hilfe-Optionen zu ändern)"
+              >
+                <img
+                  src={customLogo}
+                  alt="Logo"
+                  className="h-9 sm:h-11 w-auto max-w-[150px] object-contain"
+                />
+              </div>
+            ) : (
+              <div
+                onClick={() => onOpenHelpModal(false)}
+                className="cursor-pointer bg-amber-500 text-black p-2.5 rounded-2xl font-black flex items-center shadow-md shrink-0"
+                title="Klicken um eigenes Logo in den Hilfe-Optionen hochzuladen"
+              >
+                <Trophy className="w-6 h-6" />
+              </div>
+            )}
+
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500 text-black">
-                  HR-RaceMaster v1.5
+                  HR-RaceMaster v1.6
                 </span>
                 <span className="text-xs font-bold opacity-75">
                   {activeKartsCount} Karts aktiv • Max. {maxTrackKarts}/Gruppe
@@ -161,11 +182,11 @@ export default function Header({
             <button
               type="button"
               onClick={() => onOpenHelpModal(false)}
-              title="Hilfe, Entwickler-Kontakt & GitHub Dokumentation"
+              title="Hilfe, Logo-Upload, Entwickler-Kontakt & GitHub Dokumentation"
               className={`flex items-center px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${toolBtnBg}`}
             >
               <HelpCircle className="w-4 h-4 mr-1 text-amber-400 shrink-0" />
-              <span className="hidden sm:inline">Hilfe</span>
+              <span className="hidden sm:inline">Hilfe & Logo</span>
             </button>
 
             <button
@@ -183,7 +204,7 @@ export default function Header({
           </div>
         </div>
 
-        {/* Untere Zeile: Große, freundliche 5-Schritte Touch-Navigation (ideal für Tablet, Smartphone & Maus) */}
+        {/* Untere Zeile: Große, freundliche 5-Schritte Touch-Navigation */}
         <nav className="grid grid-cols-5 gap-1.5 sm:gap-2.5 pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;

@@ -25,6 +25,7 @@ import {
 export interface RaceBackupData {
   version: string;
   eventName: string;
+  customLogo?: string;
   eventMode: EventMode;
   hasWarmup: boolean;
   gpQualiCount: number;
@@ -100,7 +101,6 @@ export default function BackupModal({
 
   if (!open) return null;
 
-  // 1. JSON-Datei direkt auf den PC herunterladen
   const handleDownloadJsonFile = () => {
     const now = new Date();
     const dateStr = now.toISOString().slice(0, 10);
@@ -111,7 +111,7 @@ export default function BackupModal({
 
     const payload: RaceBackupData = {
       ...currentBackupData,
-      version: '1.4.0',
+      version: '1.6.0',
       savedAtFormatted: now.toLocaleString('de-DE'),
       savedAtTimestamp: now.getTime(),
     };
@@ -134,7 +134,6 @@ export default function BackupModal({
     });
   };
 
-  // 2. JSON-Datei vom PC auswählen & wiederherstellen
   const handleImportJsonFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -162,7 +161,6 @@ export default function BackupModal({
     e.target.value = '';
   };
 
-  // 3. Snapshot im lokalen Festplatten-Archiv sichern
   const handleCreateServerSnapshot = async () => {
     try {
       const res = await fetch('/api/backup', {
@@ -189,7 +187,6 @@ export default function BackupModal({
     }
   };
 
-  // 4. Snapshot aus dem Festplatten-Archiv laden
   const handleLoadServerSnapshot = async (filename: string) => {
     try {
       const res = await fetch(`/api/backup?file=${encodeURIComponent(filename)}`, {
@@ -211,7 +208,6 @@ export default function BackupModal({
     }
   };
 
-  // 5. Snapshot aus dem Archiv löschen
   const handleDeleteSnapshot = async (filename: string) => {
     if (!window.confirm(`Backup "${filename}" wirklich löschen?`)) return;
     await fetch('/api/backup', {
@@ -222,7 +218,6 @@ export default function BackupModal({
     fetchSnapshots();
   };
 
-  // 6. Neues Event starten (legt vorher sicherheitshalber einen Snapshot an!)
   const handleStartFreshEvent = async () => {
     if (
       !window.confirm(
@@ -266,7 +261,6 @@ export default function BackupModal({
         className="bg-[#1A1A1A] border-2 border-amber-500 rounded-2xl p-6 max-w-2xl w-full text-[#FAFAFA] shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-[#272727] pb-3.5">
           <div className="flex items-center space-x-2.5">
             <div className="p-2 rounded-xl bg-amber-500 text-black font-black shadow">
@@ -291,7 +285,6 @@ export default function BackupModal({
           </button>
         </div>
 
-        {/* Auto-Save Status-Banner */}
         <div className="p-3.5 rounded-xl bg-emerald-500/15 border border-emerald-500/40 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center space-x-2 text-emerald-300 font-bold">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
@@ -306,7 +299,6 @@ export default function BackupModal({
           </span>
         </div>
 
-        {/* Haupt-Aktionen: JSON Export / JSON Import / Festplatten-Snapshot */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
           <button
             type="button"
@@ -364,7 +356,6 @@ export default function BackupModal({
           </div>
         )}
 
-        {/* Festplatten-Archiv Liste */}
         <div className="bg-[#272727] border border-[#404040] rounded-xl p-4 space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center space-x-2">
@@ -431,7 +422,6 @@ export default function BackupModal({
           )}
         </div>
 
-        {/* Fußzeile: Neues Event starten (Reset) & Schließen */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#272727]">
           <button
             type="button"

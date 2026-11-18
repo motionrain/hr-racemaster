@@ -1,6 +1,7 @@
 // src/types/kart.ts
 
-export type FleetType = 'adult' | 'junior';
+export type FleetType = 'adult' | 'junior' | 'combined';
+export type KartCategory = 'adult' | 'junior';
 export type EventMode = 'gp' | 'rolling';
 export type KarasState = 'waiting' | 'running' | 'stopped';
 export type SessionKind = 'warmup' | 'quali' | 'final';
@@ -17,6 +18,7 @@ export interface KartItem {
   id: number;
   name: string;
   active: boolean;
+  category?: KartCategory;
 }
 
 export interface Driver {

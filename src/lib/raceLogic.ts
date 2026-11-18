@@ -8,19 +8,42 @@ import {
   OverallDriverStanding,
   FinalOverallEntry,
   EventMode,
+  FleetType,
 } from '../types/kart';
 
 export const ADULT_FLEET: KartItem[] = Array.from({ length: 14 }, (_, i) => ({
   id: i + 1,
   name: `Kart ${i + 1}`,
   active: true,
+  category: 'adult',
 }));
 
 export const JUNIOR_FLEET: KartItem[] = Array.from({ length: 8 }, (_, i) => ({
-  id: i + 1,
+  id: 101 + i,
   name: `Kids ${i + 1}`,
-  active: true,
+  active: false,
+  category: 'junior',
 }));
+
+export const INITIAL_COMBINED_FLEET: KartItem[] = [
+  ...ADULT_FLEET,
+  ...JUNIOR_FLEET,
+];
+
+export function applyFleetPreset(karts: KartItem[], preset: FleetType): KartItem[] {
+  const base = karts.length >= 20 ? karts : INITIAL_COMBINED_FLEET;
+  return base.map((k) => {
+    const isJunior = k.category === 'junior' || k.name.startsWith('Kids');
+    if (preset === 'adult') {
+      return { ...k, active: !isJunior };
+    }
+    if (preset === 'junior') {
+      return { ...k, active: isJunior };
+    }
+    // 'combined': Erwachsenen- und Kinderkarts gemeinsam aktiv
+    return { ...k, active: true };
+  });
+}
 
 export function isEntryActive(entry: SessionDriverEntry): boolean {
   const bt = parseFloat(entry.bestTime);

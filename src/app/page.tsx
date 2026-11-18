@@ -2,7 +2,6 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { QrCode, HelpCircle, Save } from 'lucide-react';
 import {
   Driver,
   EventMode,
@@ -13,8 +12,8 @@ import {
   SessionCard,
 } from '../types/kart';
 import {
-  ADULT_FLEET,
-  JUNIOR_FLEET,
+  INITIAL_COMBINED_FLEET,
+  applyFleetPreset,
   buildBalancedGroups,
   getQualiTurnCount,
   generateQualiSessionCards,
@@ -68,7 +67,7 @@ export default function HRRaceMasterPage() {
   const [gpQualiCount, setGpQualiCount] = useState<number>(2);
   const [maxTrackKarts, setMaxTrackKarts] = useState<number>(6);
   const [fleetType, setFleetType] = useState<FleetType>('adult');
-  const [karts, setKarts] = useState<KartItem[]>(ADULT_FLEET);
+  const [karts, setKarts] = useState<KartItem[]>(INITIAL_COMBINED_FLEET);
   const [rawDriversText, setRawDriversText] = useState<string>(DEFAULT_DRIVERS);
   const [customGroupKarts, setCustomGroupKarts] = useState<Record<string, string[]>>({});
 
@@ -92,7 +91,16 @@ export default function HRRaceMasterPage() {
     if (typeof b.gpQualiCount === 'number') setGpQualiCount(b.gpQualiCount);
     if (typeof b.maxTrackKarts === 'number') setMaxTrackKarts(b.maxTrackKarts);
     if (b.fleetType) setFleetType(b.fleetType);
-    if (Array.isArray(b.karts) && b.karts.length > 0) setKarts(b.karts);
+    if (Array.isArray(b.karts) && b.karts.length > 0) {
+      // Falls älteres Backup nur 14 Karts hatte, Kinderkarts (101..108) ergänzen, damit Kombi-Betrieb immer bereit ist
+      const hasJunior = b.karts.some((k) => k.name.startsWith('Kids'));
+      if (!hasJunior) {
+        const juniors = INITIAL_COMBINED_FLEET.filter((k) => k.name.startsWith('Kids'));
+        setKarts([...b.karts, ...juniors]);
+      } else {
+        setKarts(b.karts);
+      }
+    }
     if (typeof b.rawDriversText === 'string' && b.rawDriversText.trim()) {
       setRawDriversText(b.rawDriversText);
       const lines = b.rawDriversText
@@ -126,7 +134,6 @@ export default function HRRaceMasterPage() {
     }
   }, []);
 
-  // 1. Beim Start: Automatische Wiederherstellung aus localStorage oder vom Server (/api/backup)
   useEffect(() => {
     let restored = false;
     try {
@@ -161,7 +168,7 @@ export default function HRRaceMasterPage() {
 
   const currentBackupPayload: RaceBackupData = useMemo(
     () => ({
-      version: '1.4.0',
+      version: '1.5.0',
       eventName,
       eventMode,
       hasWarmup,
@@ -193,7 +200,6 @@ export default function HRRaceMasterPage() {
     ]
   );
 
-  // 2. Laufendes Auto-Save bei jeder Änderung (sofort in localStorage + gedrosselt auf Festplatte)
   useEffect(() => {
     if (!isHydratedRef.current || sessionCards.length === 0) return;
 
@@ -373,9 +379,26 @@ export default function HRRaceMasterPage() {
 
   const handleFleetChange = (type: FleetType) => {
     setFleetType(type);
-    const nextFleet = type === 'adult' ? ADULT_FLEET : JUNIOR_FLEET;
-    setKarts(nextFleet);
+    setKarts((prev) => applyFleetPreset(prev, type));
     setCustomGroupKarts({});
+  };
+
+  // Schaltet Kinderkarts (Kids 1–8) zusätzlich zu den Erwachsenen-Karts dazu oder wieder ab
+  const handleToggleJuniorFleetAddon = () => {
+    setKarts((prev) => {
+      const base = prev.length >= 20 ? prev : INITIAL_COMBINED_FLEET;
+      const anyJuniorActive = base.some(
+        (k) => (k.category === 'junior' || k.name.startsWith('Kids')) && k.active
+      );
+      return base.map((k) => {
+        const isJunior = k.category === 'junior' || k.name.startsWith('Kids');
+        if (isJunior) {
+          return { ...k, active: !anyJuniorActive };
+        }
+        return k;
+      });
+    });
+    setFleetType('combined');
   };
 
   const handleToggleKart = (id: number) => {
@@ -500,7 +523,7 @@ export default function HRRaceMasterPage() {
         onOpenHelpModal={handleOpenHelpModal}
       />
 
-      <main className="flex-1 max-w-7xl w-full mx-auto p-6">
+      <main className="flex-1 max-w-[1440px] w-full mx-auto p-3 sm:p-6">
         {activeTab === 'setup' && (
           <StepSetup
             darkMode={darkMode}
@@ -516,6 +539,7 @@ export default function HRRaceMasterPage() {
             setMaxTrackKarts={setMaxTrackKarts}
             fleetType={fleetType}
             onFleetChange={handleFleetChange}
+            onToggleJuniorFleetAddon={handleToggleJuniorFleetAddon}
             karts={karts}
             onToggleKart={handleToggleKart}
             rawDriversText={rawDriversText}
@@ -625,38 +649,6 @@ export default function HRRaceMasterPage() {
           />
         )}
       </main>
-
-      {/* Schwebende Schnellzugriff-Buttons rechts unten (Backup, Hilfe/Update & Mobile QR-Code) */}
-      <div className="fixed bottom-5 right-5 z-40 flex items-center space-x-2 print:hidden">
-        <button
-          type="button"
-          onClick={() => setBackupModalOpen(true)}
-          className="px-3.5 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#272727] text-emerald-400 font-black text-xs shadow-2xl border-2 border-emerald-500/60 flex items-center space-x-1.5 transition hover:scale-105"
-          title="Rennergebnisse als JSON speichern oder Backup laden"
-        >
-          <Save className="w-4 h-4" />
-          <span>💾 Backup / JSON</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => handleOpenHelpModal(false)}
-          className="px-3.5 py-3 rounded-xl bg-[#1A1A1A] hover:bg-[#272727] text-amber-400 font-black text-xs shadow-2xl border-2 border-amber-500/60 flex items-center space-x-1.5 transition hover:scale-105"
-          title="Hilfe, Info & Check for Updates"
-        >
-          <HelpCircle className="w-4 h-4" />
-          <span>Hilfe & Update</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setQrModalOpen(true)}
-          className="px-4 py-3 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-black text-xs shadow-2xl border-2 border-rose-400 flex items-center space-x-2 transition hover:scale-105"
-        >
-          <QrCode className="w-4 h-4" />
-          <span>📱 Mobile QR-Code</span>
-        </button>
-      </div>
 
       <QrCodeModal
         open={qrModalOpen}

@@ -1,9 +1,16 @@
 import './globals.css';
 import React from 'react';
+import type { Metadata, Viewport } from 'next';
 
-export const metadata = {
+export const metadata: Metadata = {
   title: 'HR-RaceMaster | Kartbahn Rheinfelden',
   description: 'Modulares Kart Event, KartRolling & KaRaS Live-Timing System',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -29,7 +36,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body>{children}</body>
+      <body className="antialiased selection:bg-amber-500 selection:text-black">
+        {children}
+      </body>
     </html>
   );
 }

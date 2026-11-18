@@ -43,135 +43,182 @@ export default function Header({
   onOpenBackupModal,
   onOpenHelpModal,
 }: HeaderProps) {
-  const navItems: { id: MainTab; label: string; icon: React.ElementType }[] = [
-    { id: 'setup', label: '1. Event & Karts', icon: Settings },
-    { id: 'rotation', label: '2. Gruppen & Rotation', icon: Grid },
-    { id: 'live', label: '3. Live-Karten (KaRaS)', icon: Activity },
-    { id: 'finals', label: '4. Finale (Runden)', icon: Flag },
-    { id: 'print', label: '5. A4 Druck & Urkunde', icon: Printer },
+  const navItems: {
+    id: MainTab;
+    step: string;
+    label: string;
+    shortLabel: string;
+    icon: React.ElementType;
+  }[] = [
+    {
+      id: 'setup',
+      step: '1',
+      label: 'Event & Karts',
+      shortLabel: 'Setup',
+      icon: Settings,
+    },
+    {
+      id: 'rotation',
+      step: '2',
+      label: 'Gruppen & Rotation',
+      shortLabel: 'Gruppen',
+      icon: Grid,
+    },
+    {
+      id: 'live',
+      step: '3',
+      label: 'Live-Rennen (KaRaS)',
+      shortLabel: 'Live',
+      icon: Activity,
+    },
+    {
+      id: 'finals',
+      step: '4',
+      label: 'Finale (Runden)',
+      shortLabel: 'Finale',
+      icon: Flag,
+    },
+    {
+      id: 'print',
+      step: '5',
+      label: 'A4 Druck & Urkunde',
+      shortLabel: 'Drucken',
+      icon: Printer,
+    },
   ];
+
+  const headerBg = darkMode
+    ? 'bg-[#141414]/95 border-[#272727] text-[#FAFAFA]'
+    : 'bg-white/95 border-[#D3D3D3] text-[#1A1A1A]';
+
+  const toolBtnBg = darkMode
+    ? 'bg-[#242424] border-[#383838] text-[#E5E5E5] hover:bg-[#323232]'
+    : 'bg-[#F0F0F0] border-[#D3D3D3] text-[#1A1A1A] hover:bg-[#E2E2E2]';
 
   return (
     <header
-      className={`border-b px-6 py-4 transition-colors print:hidden ${
-        darkMode
-          ? 'bg-[#1A1A1A] border-[#272727] text-[#FAFAFA]'
-          : 'bg-[#F5F5F5] border-[#D3D3D3] text-[#1A1A1A]'
-      }`}
+      className={`sticky top-0 z-40 backdrop-blur-md border-b px-3 sm:px-6 py-3 transition-colors print:hidden shadow-sm ${headerBg}`}
     >
-      <div className="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center space-x-3">
-          <div className="bg-amber-500 text-black p-2.5 rounded-xl font-black flex items-center shadow">
-            <Trophy className="w-6 h-6" />
-          </div>
-          <div>
-            <div className="flex items-center space-x-2">
-              <span className="text-xs font-black uppercase tracking-wider px-2 py-0.5 rounded bg-amber-500 text-black">
-                HR-RaceMaster v1.4
-              </span>
-              <span className="text-xs opacity-70">
-                {activeKartsCount} Karts bereit • Max. {maxTrackKarts} pro Gruppe
-              </span>
-              {lastAutoSaveTime && (
-                <span className="hidden sm:inline-block text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
-                  ● Auto-Save {lastAutoSaveTime}
-                </span>
-              )}
+      <div className="max-w-[1440px] mx-auto space-y-3">
+        {/* Obere Zeile: Marken-Logo, Event-Titel & Schnell-Werkzeuge (Backup, QR, Update, Hilfe) */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div className="flex items-center space-x-3 min-w-0">
+            <div className="bg-amber-500 text-black p-2.5 rounded-2xl font-black flex items-center shadow-md shrink-0">
+              <Trophy className="w-6 h-6" />
             </div>
-            <h1 className="text-lg font-black tracking-tight">{eventName}</h1>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md bg-amber-500 text-black">
+                  HR-RaceMaster v1.5
+                </span>
+                <span className="text-xs font-bold opacity-75">
+                  {activeKartsCount} Karts aktiv • Max. {maxTrackKarts}/Gruppe
+                </span>
+                {lastAutoSaveTime && (
+                  <span className="hidden md:inline-flex items-center text-[11px] font-mono px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                    ● Auto-Save {lastAutoSaveTime}
+                  </span>
+                )}
+              </div>
+              <h1 className="text-base sm:text-xl font-black tracking-tight truncate">
+                {eventName}
+              </h1>
+            </div>
+          </div>
+
+          {/* Freundliche Touch-Werkzeugleiste für PC, Tablet & Smartphone */}
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+            <button
+              type="button"
+              onClick={onOpenBackupModal}
+              title="Rennergebnisse als JSON speichern oder Backup laden"
+              className="flex items-center px-3 py-2 rounded-xl text-xs font-black border border-emerald-500/50 bg-emerald-500/15 text-emerald-400 hover:bg-emerald-500 hover:text-black transition active:scale-95"
+            >
+              <Save className="w-4 h-4 mr-1.5 shrink-0" />
+              <span>Backup / JSON</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onOpenQrModal}
+              title="QR-Code für Smartphone Check-In öffnen"
+              className="flex items-center px-3 py-2 rounded-xl text-xs font-black bg-rose-600 hover:bg-rose-500 text-white shadow transition active:scale-95"
+            >
+              <QrCode className="w-4 h-4 mr-1.5 shrink-0" />
+              <span>Smartphone QR</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenHelpModal(true)}
+              title="Auf GitHub nach neuer Version suchen (Check for Updates)"
+              className={`flex items-center px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${toolBtnBg}`}
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5 text-emerald-400 shrink-0" />
+              <span className="hidden sm:inline">Update</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => onOpenHelpModal(false)}
+              title="Hilfe, Entwickler-Kontakt & GitHub Dokumentation"
+              className={`flex items-center px-3 py-2 rounded-xl text-xs font-bold border transition active:scale-95 ${toolBtnBg}`}
+            >
+              <HelpCircle className="w-4 h-4 mr-1 text-amber-400 shrink-0" />
+              <span className="hidden sm:inline">Hilfe</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setDarkMode(!darkMode)}
+              title="Hell / Dunkel umschalten"
+              className={`p-2 rounded-xl border transition active:scale-95 ${toolBtnBg}`}
+            >
+              {darkMode ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        {/* Untere Zeile: Große, freundliche 5-Schritte Touch-Navigation (ideal für Tablet, Smartphone & Maus) */}
+        <nav className="grid grid-cols-5 gap-1.5 sm:gap-2.5 pt-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = activeTab === item.id;
             return (
               <button
                 key={item.id}
+                type="button"
                 onClick={() => setActiveTab(item.id)}
-                className={`flex items-center px-3 py-2 rounded-lg text-xs sm:text-sm font-bold transition ${
+                className={`flex items-center justify-center sm:justify-start px-2.5 sm:px-4 py-2.5 sm:py-3 rounded-xl font-black text-xs sm:text-sm border transition-all active:scale-[0.98] ${
                   isActive
-                    ? 'bg-amber-500 text-black shadow-md'
+                    ? 'bg-amber-500 text-black border-amber-400 shadow-lg ring-2 ring-amber-500/30'
                     : darkMode
-                    ? 'bg-[#272727] text-[#D3D3D3] hover:bg-[#404040]'
-                    : 'bg-[#E6E6E6] text-[#404040] hover:bg-[#D3D3D3]'
+                    ? 'bg-[#1F1F1F] border-[#303030] text-[#D4D4D4] hover:bg-[#2A2A2A] hover:border-[#454545]'
+                    : 'bg-[#EFEFEF] border-[#D3D3D3] text-[#333333] hover:bg-[#E2E2E2]'
                 }`}
               >
-                <Icon className="w-4 h-4 mr-1.5" />
-                {item.label}
+                <span
+                  className={`hidden md:inline-flex items-center justify-center w-6 h-6 rounded-lg text-xs font-black mr-2 shrink-0 ${
+                    isActive
+                      ? 'bg-black/20 text-black'
+                      : 'bg-amber-500/20 text-amber-400'
+                  }`}
+                >
+                  {item.step}
+                </span>
+                <Icon className="w-4 h-4 sm:w-5 sm:h-5 mr-1.5 shrink-0" />
+                <span className="hidden lg:inline truncate">{item.label}</span>
+                <span className="lg:hidden truncate">
+                  {item.step}. {item.shortLabel}
+                </span>
               </button>
             );
           })}
-
-          {/* Backup / JSON Speichern & Laden Button */}
-          <button
-            type="button"
-            onClick={onOpenBackupModal}
-            title="Rennergebnisse als JSON speichern oder Backup laden"
-            className={`flex items-center px-3 py-2 rounded-lg text-xs font-black border transition ${
-              darkMode
-                ? 'bg-[#272727] border-amber-500/50 text-amber-400 hover:bg-amber-500 hover:text-black'
-                : 'bg-[#E6E6E6] border-amber-600 text-amber-700 hover:bg-amber-500 hover:text-black'
-            }`}
-          >
-            <Save className="w-3.5 h-3.5 mr-1.5" />
-            💾 Backup
-          </button>
-
-          {/* Smartphone QR-Code Button */}
-          <button
-            type="button"
-            onClick={onOpenQrModal}
-            className="flex items-center px-3 py-2 rounded-lg text-xs font-black bg-rose-600 hover:bg-rose-500 text-white shadow-md transition"
-            title="QR-Code für Smartphone Fahrer-Check-In anzeigen"
-          >
-            <QrCode className="w-4 h-4 mr-1" />
-            📱 QR
-          </button>
-
-          {/* Check for Updates */}
-          <button
-            type="button"
-            onClick={() => onOpenHelpModal(true)}
-            title="Auf GitHub nach neuer Version suchen (Check for Updates)"
-            className={`flex items-center px-2.5 py-2 rounded-lg text-xs font-bold border transition ${
-              darkMode
-                ? 'bg-[#272727] border-[#404040] text-emerald-400 hover:border-emerald-500'
-                : 'bg-[#E6E6E6] border-[#D3D3D3] text-emerald-700 hover:border-emerald-600'
-            }`}
-          >
-            <RefreshCw className="w-3.5 h-3.5 mr-1" />
-            Update
-          </button>
-
-          {/* Hilfe / Info Button */}
-          <button
-            type="button"
-            onClick={() => onOpenHelpModal(false)}
-            title="Hilfe, Entwickler-Kontakt, Version & GitHub README"
-            className={`flex items-center px-2.5 py-2 rounded-lg text-xs font-bold border transition ${
-              darkMode
-                ? 'bg-[#272727] border-[#404040] text-amber-400 hover:border-amber-500'
-                : 'bg-[#E6E6E6] border-[#D3D3D3] text-[#272727] hover:border-amber-500'
-            }`}
-          >
-            <HelpCircle className="w-4 h-4 mr-1" />
-            Hilfe
-          </button>
-
-          <button
-            onClick={() => setDarkMode(!darkMode)}
-            title="Star Dust Light / Dark wechseln"
-            className={`p-2 rounded-lg border transition ${
-              darkMode
-                ? 'bg-[#272727] border-[#404040] text-amber-400'
-                : 'bg-[#E6E6E6] border-[#D3D3D3] text-[#272727]'
-            }`}
-          >
-            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
-        </div>
+        </nav>
       </div>
     </header>
   );
